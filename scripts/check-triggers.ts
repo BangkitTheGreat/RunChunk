@@ -7,6 +7,7 @@ import { startExecution, type StartDeps, type StartInput } from "../src/lib/exec
 import { TOKEN_PATTERN, buildTriggerData, generateSigningSecret, generateToken, hashToken, parseWebhookBody, signPayload, tokenHint, verifySignature, webhookUrl } from "../src/lib/webhook";
 import type { WorkflowDefinition, WorkflowNode } from "../src/lib/workflow/types";
 import { autoLayout, STATION_HEIGHT, STATION_WIDTH } from "../src/lib/workflow/layout";
+import { diffDefinitions, isEmptyDiff } from "../src/lib/workflow/diff";
 
 const node = (id: string, type: WorkflowNode["type"], data: Record<string, unknown> = {}): WorkflowNode => ({ id, type, position: { x: 0, y: 0 }, data });
 const edge = (source: string, target: string, sourceHandle?: string) => ({ id: `${source}-${sourceHandle ?? "out"}-${target}`, source, target, sourceHandle: sourceHandle ?? null });
@@ -267,7 +268,32 @@ function layoutChecks() {
   assert.equal(lone.nodes.length, 1);
 }
 
+function diffChecks() {
+  const base: WorkflowDefinition = { nodes: [node("t", "trigger.manual"), node("h", "action.http", { url: "https://a", method: "GET" }), node("o", "output.response")], edges: [edge("t", "h"), edge("h", "o")] };
+  assert.ok(isEmptyDiff(diffDefinitions(base, base)));
+  const moved = { ...base, nodes: base.nodes.map((n) => ({ ...n, position: { x: 999, y: 999 } })) };
+  assert.ok(isEmptyDiff(diffDefinitions(base, moved)), "positions do not count");
+  const reordered = { ...base, nodes: [...base.nodes].reverse(), edges: [...base.edges].reverse() };
+  assert.ok(isEmptyDiff(diffDefinitions(base, reordered)), "order does not count");
+  const keyOrder = { ...base, nodes: base.nodes.map((n) => (n.id === "h" ? { ...n, data: { method: "GET", url: "https://a" } } : n)) };
+  assert.ok(isEmptyDiff(diffDefinitions(base, keyOrder)), "data key order does not count");
+  const next: WorkflowDefinition = {
+    nodes: [node("t", "trigger.manual"), node("h", "action.http", { url: "https://b", method: "GET" }), node("c", "control.condition")],
+    edges: [edge("t", "h"), edge("h", "c")],
+  };
+  const diff = diffDefinitions(base, next);
+  assert.deepEqual(diff.addedNodes.map((n) => n.id), ["c"]);
+  assert.deepEqual(diff.removedNodes.map((n) => n.id), ["o"]);
+  assert.deepEqual(diff.changedNodes.map((n) => n.id), ["h"]);
+  assert.equal(diff.addedEdges, 1);
+  assert.equal(diff.removedEdges, 1);
+  const handleSwap = { ...base, nodes: [...base.nodes, node("c", "control.condition")], edges: [edge("t", "c"), edge("c", "h", "true"), edge("h", "o")] };
+  const swapped = { ...handleSwap, edges: [edge("t", "c"), edge("c", "h", "false"), edge("h", "o")] };
+  assert.equal(diffDefinitions(handleSwap, swapped).addedEdges, 1, "a different port is a different connection");
+}
+
 async function main() {
+  diffChecks();
   layoutChecks();
   signatureChecks();
   validationChecks();

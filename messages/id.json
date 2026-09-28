@@ -300,5 +300,21 @@
     "keyVersion": "kunci v{version}",
     "secretHidden": "••••••••",
     "valueHint": "Minimal 8 karakter. Setelah disimpan, nilai ini tidak bisa dilihat lagi, hanya bisa diganti."
+  },
+  "versions": {
+    "title": "Riwayat versi",
+    "hint": "Setiap simpan yang mengubah definisi atau nama tersimpan sebagai versi (20 terakhir). Mengembalikan versi lama membuat versi baru, jadi selalu bisa dibatalkan.",
+    "empty": "Belum ada versi tersimpan.",
+    "current": "Versi saat ini",
+    "isCurrent": "Ini versi yang sedang dibuka.",
+    "counts": "{nodes} node · {edges} edge",
+    "same": "Sama dengan kanvas sekarang (hanya posisi yang berbeda).",
+    "nodesOnlyThere": "{count} node hanya ada di versi ini: {names}",
+    "nodesOnlyHere": "{count} node tidak ada di versi ini: {names}",
+    "nodesChanged": "{count} node berbeda konfigurasi: {names}",
+    "edges": "Koneksi: +{added} / −{removed} dibanding kanvas",
+    "restore": "Kembalikan v{version}",
+    "confirmRestore": "Kembalikan v{version}? Kanvas saat ini disimpan dulu sebagai versi baru, lalu diganti.",
+    "button": "Versi"
   }
 }

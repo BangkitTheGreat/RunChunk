@@ -364,6 +364,15 @@ kbd { font:10px var(--font-mono); color:var(--color-text-subtle); margin-left:6p
 .url-box { font-size:10px; margin:8px 0; }
 .next-runs { margin:6px 0 16px; padding-left:18px; font-family:var(--font-mono); font-size:11px; color:var(--color-text-muted); line-height:1.9; }
 .signing-title { display:block; margin-top:24px; padding-top:18px; border-top:1px solid var(--color-border); }
+.version-list { list-style:none; margin:16px 0 0; padding:0; }
+.version-item { border-top:1px solid var(--color-border-subtle); }
+.version-item.is-current .version-row strong { color:var(--color-accent-text); }
+.version-row { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; width:100%; padding:10px 0; border:0; background:transparent; text-align:left; font-size:11px; }
+.version-row strong { font-family:var(--font-mono); }
+.version-row span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.version-row small { grid-column:2; color:var(--color-text-subtle); font-size:10px; }
+.version-detail { padding:0 0 12px; }
+.version-diff { margin:0 0 12px; padding-left:18px; font-size:11px; color:var(--color-text-muted); line-height:1.7; }
 .loading-screen { display:flex; align-items:center; justify-content:center; gap:12px; min-height:100dvh; color:var(--color-text-muted); }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }

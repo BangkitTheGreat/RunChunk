@@ -300,5 +300,21 @@
     "keyVersion": "key v{version}",
     "secretHidden": "••••••••",
     "valueHint": "At least 8 characters. Once saved it cannot be viewed, only replaced."
+  },
+  "versions": {
+    "title": "Version history",
+    "hint": "Every save that changes the definition or name is kept as a version (last 20). Restoring an old one creates a new version, so it can always be undone.",
+    "empty": "No saved versions yet.",
+    "current": "Current version",
+    "isCurrent": "This is the version open now.",
+    "counts": "{nodes} nodes · {edges} edges",
+    "same": "Same as the canvas now (only positions differ).",
+    "nodesOnlyThere": "{count} nodes exist only in this version: {names}",
+    "nodesOnlyHere": "{count} nodes are missing from this version: {names}",
+    "nodesChanged": "{count} nodes configured differently: {names}",
+    "edges": "Connections: +{added} / −{removed} compared to the canvas",
+    "restore": "Restore v{version}",
+    "confirmRestore": "Restore v{version}? The current canvas is kept as a new version first, then replaced.",
+    "button": "Versions"
   }
 }

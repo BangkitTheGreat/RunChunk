@@ -14,7 +14,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import type { Connection, EdgeChange, Node, NodeChange } from '@xyflow/react';
-import { ArrowLeft, Check, KeyRound, LayoutGrid, LoaderCircle, LogOut, Moon, Play, Power, Save, Sun, Workflow, X } from 'lucide-react';
+import { ArrowLeft, Check, GitCommitVertical, KeyRound, LayoutGrid, LoaderCircle, LogOut, Moon, Play, Power, Save, Sun, Workflow, X } from 'lucide-react';
 import { UNARY_OPERATORS, isTriggerType } from '@/lib/workflow/types';
 import type { NodeType, WorkflowDefinition } from '@/lib/workflow/types';
 import type { StarterTemplate } from '@/lib/workflow/templates';
@@ -30,6 +30,7 @@ import { request } from './request';
 import { DEFAULT_DATA, NODE_CATEGORY, NODE_LABELS, NodeIcon, SUPPORTED_KINDS, edgeTypes, nodeTypes } from './station';
 import type { StationData } from './station';
 import { useRealtimeRefetch } from './use-realtime';
+import { VersionPanel } from './version-panel';
 
 // Application shell: workspace state, API calls, the canvas, and the frame around the views.
 // Views that only render state live in their own files (dashboard, node-drawer, execution-dock, ...).
@@ -67,6 +68,7 @@ function Workspace() {
   const [measured, setMeasured] = useState<Record<string, Node['measured']>>({});
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [showVersions, setShowVersions] = useState(false);
   // The canvas follows the newest execution (webhook/schedule runs arrive without a click) until the
   // user pins an older one from the history list.
   const followLatestRef = useRef(true);
@@ -236,6 +238,7 @@ function Workspace() {
     }
     setView(nextView);
     setActive(row);
+    setShowVersions(false);
     setMeasured({});
     setDirty(false);
     setSelected(null);
@@ -303,6 +306,7 @@ function Workspace() {
 
   const choose = (id: string) => {
     setSelected(id);
+    setShowVersions(false);
     const targetNode = active?.definition.nodes.find((n) => n.id === id);
     setHeaders(JSON.stringify(targetNode?.data.headers ?? {}, null, 2));
   };
@@ -370,6 +374,21 @@ function Workspace() {
       setBusy(false);
       loadUsage();
     }
+  };
+
+  const restored = (workflow: WorkflowRow) => {
+    setActive(workflow);
+    setRows((r) => r.map((row) => (row.id === workflow.id ? workflow : row)));
+    setDirty(false);
+    setSelected(null);
+    setShowVersions(false);
+  };
+
+  const openVersions = async () => {
+    // Unsaved edits would be lost on restore; save first so they become a version too.
+    if (dirty && !(await save())) return;
+    setSelected(null);
+    setShowVersions(true);
   };
 
   const tidy = () => {
@@ -648,6 +667,10 @@ function Workspace() {
                     />
                   ))}
                 </span>
+                <button className="secondary-button" disabled={busy} title={t('versions.title')} aria-pressed={showVersions} onClick={() => void openVersions()}>
+                  <GitCommitVertical size={15} />
+                  {t('versions.button')}
+                </button>
                 <button className="secondary-button" disabled={busy} title={t('editor.autoLayoutHint')} onClick={tidy}>
                   <LayoutGrid size={15} />
                   {t('editor.autoLayout')}
@@ -740,6 +763,10 @@ function Workspace() {
                 </ReactFlow>
                 <div className="canvas-hint">{t('editor.canvasHint')}</div>
               </div>
+
+              {showVersions && !currentNode && (
+                <VersionPanel workflow={active} onRestored={restored} onClose={() => setShowVersions(false)} fail={fail} />
+              )}
 
               {currentNode && (
                 <NodeDrawer

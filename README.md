@@ -39,6 +39,7 @@ supabase db reset
 # supabase/migrations/0003_credentials.sql
 # supabase/migrations/0004_webhook_schedule_quota.sql
 # supabase/migrations/0005_webhook_signature.sql
+# supabase/migrations/0006_workflow_versions.sql
 ```
 
 ### RLS Isolation Check / *Uji Isolasi RLS*:
@@ -79,6 +80,8 @@ npm test            # validator, SSRF, expression, engine (branching, delay, ret
   *Webhook: buat URL dari node webhook (token ditampilkan sekali). Respons `202 {"executionId"}`; hasil dibaca di riwayat. Hanya workflow **Aktif** yang menerima request.*
 - Optional webhook signing: enable it on the webhook node to get a shared secret (shown once). Senders add `X-RunChunk-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "t.body")>`; requests with a missing, stale (±5 min) or wrong signature get `401`. The editor shows a signed `curl` example.
   *Tanda tangan webhook opsional: aktifkan di node webhook untuk mendapat rahasia bersama (ditampilkan sekali). Request tanpa tanda tangan yang cocok mendapat `401`.*
+- Editor extras: **Rapikan otomatis** re-lays out nodes left to right (dagre); **Versi** lists the last 20 saved versions with a diff against the canvas and restores one as a new version.
+  *Ekstra editor: **Rapikan otomatis** menata ulang node (dagre); **Versi** menampilkan 20 versi terakhir dengan perbedaan terhadap kanvas dan mengembalikannya sebagai versi baru.*
 - Schedule: 5-field cron + IANA timezone on the schedule node; one Inngest cron dispatcher (`schedule-dispatcher`, every minute) fires active workflows. Missed slots are not caught up; when the monthly quota runs out the schedule is deactivated and a failed execution records why.
   *Jadwal: cron 5 field + zona waktu di node jadwal; satu dispatcher Inngest tiap menit. Slot terlewat tidak dikejar; saat kuota habis jadwal dinonaktifkan dan tercatat di riwayat.*
 - Quota (PRD §9): Free 100 runs/month and 3 active workflows; Pro 5,000 runs and 10 active. Reserved atomically in Postgres for manual, webhook and schedule runs. Pro is a simulation set by an admin (`update profiles set plan = 'pro' where id = …`); clients cannot change it.

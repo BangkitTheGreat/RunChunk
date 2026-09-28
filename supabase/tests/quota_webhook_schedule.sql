@@ -90,6 +90,39 @@ begin
 end;
 $$;
 
+-- Versioning (superuser fixtures, then RLS below) --------------------------------
+reset role;
+do $$
+declare n int;
+begin
+  -- insert recorded v1; a definition update records v2; an activation toggle does not add a version
+  update public.workflows set definition = '{"nodes":[{"id":"a"}],"edges":[]}' where id = '10000000-0000-0000-0000-000000000002';
+  update public.workflows set is_active = false where id = '10000000-0000-0000-0000-000000000002';
+  update public.workflows set is_active = true where id = '10000000-0000-0000-0000-000000000002';
+  select count(*) into n from public.workflow_versions where workflow_id = '10000000-0000-0000-0000-000000000002';
+  if n <> 2 then raise exception 'FAIL: expected 2 versions after insert + definition change, got %', n; end if;
+  -- workflows.version is a concurrency counter (bumped by every update); the newest snapshot never exceeds
+  -- it and always holds the current definition
+  if not exists (
+    select 1 from public.workflow_versions v join public.workflows w on w.id = v.workflow_id
+    where v.workflow_id = '10000000-0000-0000-0000-000000000002'
+      and v.version = (select max(version) from public.workflow_versions where workflow_id = w.id)
+      and v.version <= w.version and v.definition = w.definition and v.name = w.name
+  ) then
+    raise exception 'FAIL: newest snapshot does not match the workflow';
+  end if;
+  -- retention: only the newest 20 survive
+  for i in 1..25 loop
+    update public.workflows set name = 'w2-' || i where id = '10000000-0000-0000-0000-000000000002';
+  end loop;
+  select count(*) into n from public.workflow_versions where workflow_id = '10000000-0000-0000-0000-000000000002';
+  if n <> 20 then raise exception 'FAIL: retention kept % versions', n; end if;
+  if (select node_count from public.workflow_version_summaries where workflow_id = '10000000-0000-0000-0000-000000000002' order by version desc limit 1) <> 1 then
+    raise exception 'FAIL: summary node_count wrong';
+  end if;
+end;
+$$;
+
 -- As user A: read own usage/metadata, never secrets, never spend quota --------------
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', true);
@@ -174,6 +207,25 @@ begin
     raise exception 'FAIL: client reset usage';
   exception when insufficient_privilege then null;
   end;
+
+  -- versions: readable for own workflows, never writable from the client
+  if (select count(*) from public.workflow_versions where workflow_id = '10000000-0000-0000-0000-000000000002') <> 20 then raise exception 'FAIL: A cannot list own versions'; end if;
+  if (select count(*) from public.workflow_version_summaries where workflow_id = '10000000-0000-0000-0000-000000000002') <> 20 then raise exception 'FAIL: A cannot read version summaries'; end if;
+  begin
+    insert into public.workflow_versions (workflow_id, user_id, version, name, definition) values ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a', 999, 'x', '{}');
+    raise exception 'FAIL: client inserted a version';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from public.workflow_versions;
+    raise exception 'FAIL: client deleted versions';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.record_workflow_version();
+    raise exception 'FAIL: client called the version trigger function';
+  exception when insufficient_privilege or feature_not_supported then null;
+  end;
 end;
 $$;
 
@@ -187,6 +239,8 @@ begin
   if exists (select 1 from public.workflow_schedules) then raise exception 'FAIL: B sees A schedule'; end if;
   if exists (select 1 from public.usage_counters) then raise exception 'FAIL: B sees A usage'; end if;
   if exists (select 1 from public.workflow_last_executions) then raise exception 'FAIL: B sees A last executions'; end if;
+  if exists (select 1 from public.workflow_versions) then raise exception 'FAIL: B sees A versions'; end if;
+  if exists (select 1 from public.workflow_version_summaries) then raise exception 'FAIL: B sees A version summaries'; end if;
   select * into r from public.my_usage();
   if r.runs <> 0 or r.active_workflows <> 0 then raise exception 'FAIL: B usage not isolated'; end if;
 end;
