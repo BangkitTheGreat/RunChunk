@@ -66,6 +66,16 @@ npx inngest-cli dev -u http://localhost:3008/api/inngest
 
 `inngest-cli` terpasang sebagai dependensi pengembangan. npm 12 memblokir install script secara default; `package.json` hanya mengizinkan `inngest-cli@1.45.1` agar binari natif terpasang. Bila instalasi sebelumnya terlewat, jalankan `npm rebuild inngest-cli --foreground-scripts`. Hindari `inngest-cli@latest` via npx karena cache bisa tidak memiliki binari.
 
+### Secret scan / *Pemindaian rahasia*
+
+```bash
+npm run check:secrets
+```
+
+Scans every git-tracked file for committed secrets (Supabase JWT/secret keys, Inngest signing keys, private keys, GitHub/Google tokens, Postgres URLs with passwords, non-placeholder `*_KEY`/`*_SECRET`/`*_TOKEN` values). It prints only `file:line` and the rule, never the value. CI runs it on every PR. It does **not** scan git history: before making the repo public, also run `gitleaks git .` and rotate any key that was ever committed.
+
+*Memindai semua file yang di-track git untuk rahasia yang ikut ter-commit. Output hanya `file:baris` dan nama aturan, nilai rahasia tidak pernah dicetak. CI menjalankannya di setiap PR. Skrip ini **tidak** memindai riwayat git: sebelum repo dipublikasikan, jalankan juga `gitleaks git .` dan rotasi kunci yang pernah ter-commit.*
+
 ---
 
 ## 4. Current Verification Limits / *Batasan Verifikasi Saat Ini*
