@@ -14,10 +14,11 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import type { Connection, EdgeChange, Node, NodeChange } from '@xyflow/react';
-import { ArrowLeft, Check, KeyRound, LoaderCircle, LogOut, Moon, Play, Power, Save, Sun, Workflow, X } from 'lucide-react';
+import { ArrowLeft, Check, KeyRound, LayoutGrid, LoaderCircle, LogOut, Moon, Play, Power, Save, Sun, Workflow, X } from 'lucide-react';
 import { UNARY_OPERATORS, isTriggerType } from '@/lib/workflow/types';
 import type { NodeType, WorkflowDefinition } from '@/lib/workflow/types';
 import type { StarterTemplate } from '@/lib/workflow/templates';
+import { autoLayout } from '@/lib/workflow/layout';
 import type { JalurEdgeType } from './jalur-edge';
 import { CredentialsView } from './credentials-view';
 import { DashboardView } from './dashboard';
@@ -371,6 +372,11 @@ function Workspace() {
     }
   };
 
+  const tidy = () => {
+    if (!active) return;
+    change(autoLayout(active.definition, measured));
+  };
+
   const setRouteColor = (color: number) => {
     setActive((a) => (a ? { ...a, route_color: color } : a));
     setDirty(true);
@@ -642,6 +648,10 @@ function Workspace() {
                     />
                   ))}
                 </span>
+                <button className="secondary-button" disabled={busy} title={t('editor.autoLayoutHint')} onClick={tidy}>
+                  <LayoutGrid size={15} />
+                  {t('editor.autoLayout')}
+                </button>
                 {needsActivation && (
                   <button
                     className={`secondary-button active-toggle ${active.is_active ? 'is-active' : ''}`}

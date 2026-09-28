@@ -5,7 +5,8 @@ import { executeWorkflow, type EngineDeps, type LogEntry } from "../src/lib/work
 import { dispatchSlot, type DispatchDeps, type DueSchedule } from "../src/lib/executions/dispatch";
 import { startExecution, type StartDeps, type StartInput } from "../src/lib/executions/start";
 import { TOKEN_PATTERN, buildTriggerData, generateSigningSecret, generateToken, hashToken, parseWebhookBody, signPayload, tokenHint, verifySignature, webhookUrl } from "../src/lib/webhook";
-import type { WorkflowNode } from "../src/lib/workflow/types";
+import type { WorkflowDefinition, WorkflowNode } from "../src/lib/workflow/types";
+import { autoLayout, STATION_HEIGHT, STATION_WIDTH } from "../src/lib/workflow/layout";
 
 const node = (id: string, type: WorkflowNode["type"], data: Record<string, unknown> = {}): WorkflowNode => ({ id, type, position: { x: 0, y: 0 }, data });
 const edge = (source: string, target: string, sourceHandle?: string) => ({ id: `${source}-${sourceHandle ?? "out"}-${target}`, source, target, sourceHandle: sourceHandle ?? null });
@@ -238,7 +239,36 @@ function signatureChecks() {
   assert.deepEqual(verifySignature(secret, both, body, now), { ok: true });
 }
 
+function layoutChecks() {
+  const messy: WorkflowDefinition = {
+    nodes: [
+      node("o", "output.response"), node("no", "output.response"), node("c", "control.condition", { left: "x", operator: "exists" }),
+      node("t", "trigger.manual"), node("h", "action.http", { url: "https://x" }), node("yes", "action.set_variable"),
+    ].map((n, i) => ({ ...n, position: { x: 900 - i * 100, y: 500 - i * 80 } })),
+    edges: [edge("t", "h"), edge("h", "c"), edge("c", "yes", "true"), edge("c", "no", "false"), edge("yes", "o"), edge("no", "o")],
+  };
+  const tidy = autoLayout(messy);
+  const at = (id: string) => tidy.nodes.find((n) => n.id === id)!.position;
+  assert.deepEqual(tidy.edges, messy.edges, "edges untouched");
+  assert.deepEqual(tidy.nodes.map((n) => [n.id, n.type, n.data]), messy.nodes.map((n) => [n.id, n.type, n.data]), "only positions change");
+  assert.ok(tidy.nodes.every((n) => at(n.id).x >= 0 && at(n.id).y >= 0), "inside the canvas");
+  assert.ok(at("t").x < at("h").x && at("h").x < at("c").x && at("c").x < at("yes").x && at("yes").x < at("o").x, "flows left to right");
+  assert.equal(at("yes").x, at("no").x, "branches share a rank");
+  assert.ok(at("yes").y < at("no").y, "true branch above false branch");
+  for (const a of tidy.nodes) for (const b of tidy.nodes) if (a.id < b.id) {
+    const overlap = Math.abs(at(a.id).x - at(b.id).x) < STATION_WIDTH && Math.abs(at(a.id).y - at(b.id).y) < STATION_HEIGHT;
+    assert.ok(!overlap, `${a.id} overlaps ${b.id}`);
+  }
+  assert.deepEqual(autoLayout(messy), tidy, "deterministic");
+  const taller = autoLayout(messy, { yes: { height: 200 } });
+  const tallAt = (id: string) => taller.nodes.find((n) => n.id === id)!.position;
+  assert.ok(tallAt("no").y - tallAt("yes").y >= 200, "measured sizes are honored (a taller sibling pushes the next one down)");
+  const lone = autoLayout({ nodes: [node("t", "trigger.manual")], edges: [] });
+  assert.equal(lone.nodes.length, 1);
+}
+
 async function main() {
+  layoutChecks();
   signatureChecks();
   validationChecks();
   cronChecks();

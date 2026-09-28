@@ -219,7 +219,9 @@
     "webhookSignatureExample": "Signed example call",
     "webhookSignatureSet": "Enabled since {date} · secret …{hint}",
     "webhookSignatureConfirmRotate": "Rotate the secret? Senders must switch to the new one; the old one is refused immediately.",
-    "webhookSignatureConfirmDisable": "Disable signing? Unsigned requests will be accepted again."
+    "webhookSignatureConfirmDisable": "Disable signing? Unsigned requests will be accepted again.",
+    "autoLayout": "Tidy up",
+    "autoLayoutHint": "Re-arrange node positions left to right; true branch on top."
   },
   "nodes": {
     "triggerManual": "Manual Trigger",

@@ -219,7 +219,9 @@
     "webhookSignatureExample": "Contoh pemanggilan bertanda tangan",
     "webhookSignatureSet": "Aktif sejak {date} · rahasia …{hint}",
     "webhookSignatureConfirmRotate": "Rotasi rahasia? Pengirim harus memakai rahasia baru; yang lama langsung ditolak.",
-    "webhookSignatureConfirmDisable": "Nonaktifkan tanda tangan? Request tanpa tanda tangan akan diterima lagi."
+    "webhookSignatureConfirmDisable": "Nonaktifkan tanda tangan? Request tanpa tanda tangan akan diterima lagi.",
+    "autoLayout": "Rapikan otomatis",
+    "autoLayoutHint": "Susun ulang posisi node kiri ke kanan; cabang benar di atas."
   },
   "nodes": {
     "triggerManual": "Pemicu Manual",
