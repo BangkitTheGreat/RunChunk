@@ -1,7 +1,8 @@
 import {
-  CONDITION_HANDLES, CONDITION_OPERATORS, DELAY_UNITS, FORBIDDEN_KEYS, HTTP_METHODS, MAX_DELAY_SECONDS, MAX_RETRIES, MAX_RUN_SECONDS, NODE_CATALOG, VARIABLE_KEY,
+  CONDITION_HANDLES, CONDITION_OPERATORS, DELAY_UNITS, FORBIDDEN_KEYS, HTTP_METHODS, MAX_DELAY_SECONDS, MAX_RETRIES, MAX_RUN_SECONDS, NODE_CATALOG, VARIABLE_KEY, isTriggerType,
   type DelayUnit, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode,
 } from "./types";
+import { isValidCron, isValidTimezone } from "./schedule";
 
 const MAX_NODES = 100;
 const MAX_EDGES = 300;
@@ -67,6 +68,11 @@ function validateNodeData(node: WorkflowNode) {
       if (seconds > MAX_DELAY_SECONDS) invalid();
       break;
     }
+    case "trigger.schedule":
+      // Cron may be empty in a draft; activation requires a runnable one (see scheduleConfig).
+      if (data.cron !== undefined && data.cron !== "" && (typeof data.cron !== "string" || !isValidCron(data.cron))) invalid();
+      if (data.timezone !== undefined && data.timezone !== "" && (typeof data.timezone !== "string" || !isValidTimezone(data.timezone))) invalid();
+      break;
     case "action.set_variable": {
       if (data.values === undefined) break;
       if (!isRecord(data.values)) invalid();
@@ -99,12 +105,13 @@ export function validateDefinition(input: unknown): WorkflowDefinition {
     byId.set(typed.id, typed);
     return typed;
   });
-  if (nodes.filter((node) => node.type === "trigger.manual").length !== 1) invalid();
+  // Exactly one trigger of any kind; the Run button works on all of them (empty trigger data).
+  if (nodes.filter((node) => isTriggerType(node.type)).length !== 1) invalid();
   const pairs = new Set<string>();
   const edges: WorkflowEdge[] = (candidate.edges as unknown[]).map((raw) => {
     if (!isRecord(raw)) invalid();
     const edge = raw as Record<string, unknown>;
-    if (typeof edge.id !== "string" || typeof edge.source !== "string" || typeof edge.target !== "string" || !byId.has(edge.source) || !byId.has(edge.target) || edge.source === edge.target || byId.get(edge.target)!.type === "trigger.manual") invalid();
+    if (typeof edge.id !== "string" || typeof edge.source !== "string" || typeof edge.target !== "string" || !byId.has(edge.source) || !byId.has(edge.target) || edge.source === edge.target || isTriggerType(byId.get(edge.target)!.type)) invalid();
     const source = byId.get(edge.source as string)!;
     if (source.type === "output.response") invalid();
     // Condition edges must leave through a named port; every other edge uses the default port.
@@ -139,4 +146,18 @@ export function validateDefinition(input: unknown): WorkflowDefinition {
   const definition = { nodes, edges };
   if (worstCaseSeconds(definition) > MAX_RUN_SECONDS) invalid();
   return definition;
+}
+
+/** The single trigger node of a validated definition. */
+export function triggerNode(definition: WorkflowDefinition): WorkflowNode {
+  return definition.nodes.find((node) => isTriggerType(node.type))!;
+}
+
+/** Runnable schedule settings of a definition, or null when it has no schedule trigger or the cron is not set. */
+export function scheduleConfig(definition: WorkflowDefinition): { cron: string; timezone: string } | null {
+  const trigger = triggerNode(definition);
+  if (trigger.type !== "trigger.schedule") return null;
+  const cron = typeof trigger.data.cron === "string" ? trigger.data.cron.trim() : "";
+  const timezone = typeof trigger.data.timezone === "string" && trigger.data.timezone ? trigger.data.timezone : "UTC";
+  return cron && isValidCron(cron) && isValidTimezone(timezone) ? { cron, timezone } : null;
 }

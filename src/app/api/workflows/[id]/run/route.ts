@@ -1,14 +1,13 @@
-import { randomUUID } from "node:crypto";
 import { ApiError, apiError, authenticate, json, requireId, sameOrigin } from "@/lib/api";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { inngest } from "@/lib/inngest/client";
+import { start } from "@/lib/executions/db";
 import { validateDefinition } from "@/lib/workflow/validate";
 
+/** Manual run from the editor. Works for every trigger type; the trigger node receives empty data. */
 export async function POST(request: Request, ctx: RouteContext<"/api/workflows/[id]/run">) {
   try {
     sameOrigin(request);
-    const { id: workflowId } = await ctx.params;
-    requireId(workflowId);
+    const workflowId = requireId((await ctx.params).id);
     const { supabase, user } = await authenticate();
 
     const { data: workflow, error: workflowError } = await supabase
@@ -21,38 +20,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/workflows/[
     if (!workflow) throw new ApiError(404, "errors.notFound");
 
     const definition = validateDefinition(workflow.definition);
-
-    const admin = createAdminClient();
-    const executionId = randomUUID();
-    const { error: insertError } = await admin.from("executions").insert({
-      id: executionId,
-      workflow_id: workflowId,
-      user_id: user.id,
-      definition_snapshot: definition,
-      definition_version: workflow.version,
-      trigger_data: {},
-      status: "pending",
+    const result = await start(createAdminClient(), {
+      workflowId, userId: user.id, definition, version: workflow.version, triggerSource: "manual", triggerData: {},
     });
-    if (insertError) throw insertError;
-
-    try {
-      await inngest.send({
-        name: "runchunk/workflow.run",
-        data: { executionId, userId: user.id, workflowId, triggerData: {} },
-      });
-    } catch (dispatchError) {
-      console.error("inngest dispatch failed", { type: dispatchError instanceof Error ? dispatchError.name : "unknown" });
-      const { error: markError } = await admin
-        .from("executions")
-        .update({ status: "dispatch_failed", error: "errors.dispatchFailed", finished_at: new Date().toISOString() })
-        .eq("id", executionId)
-        .eq("user_id", user.id)
-        .eq("workflow_id", workflowId)
-        .eq("status", "pending");
-      if (markError) console.error("dispatch_failed mark failed", { code: markError.code });
-      return json({ error: "errors.dispatchFailed", executionId }, 502);
-    }
-
-    return json({ executionId }, 202);
+    if (!result.ok && result.reason === "quota") return json({ error: "errors.quotaExceeded", used: result.used, quota: result.quota }, 403);
+    if (!result.ok) return json({ error: "errors.dispatchFailed", executionId: result.executionId }, 502);
+    return json({ executionId: result.executionId }, 202);
   } catch (error) { return apiError(error); }
 }

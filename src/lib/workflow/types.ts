@@ -3,6 +3,8 @@
 
 export type NodeType =
   | "trigger.manual"
+  | "trigger.webhook"
+  | "trigger.schedule"
   | "action.http"
   | "action.set_variable"
   | "control.condition"
@@ -19,12 +21,35 @@ export interface NodeCatalogEntry {
 
 export const NODE_CATALOG: NodeCatalogEntry[] = [
   { type: "trigger.manual", category: "trigger", implemented: true },
+  { type: "trigger.webhook", category: "trigger", implemented: true },
+  { type: "trigger.schedule", category: "trigger", implemented: true },
   { type: "action.http", category: "action", implemented: true },
   { type: "action.set_variable", category: "action", implemented: true },
   { type: "control.condition", category: "control", implemented: true },
   { type: "control.delay", category: "control", implemented: true },
   { type: "output.response", category: "output", implemented: true },
 ];
+
+export const TRIGGER_TYPES: readonly NodeType[] = ["trigger.manual", "trigger.webhook", "trigger.schedule"];
+export const isTriggerType = (type: string): boolean => TRIGGER_TYPES.includes(type as NodeType);
+
+/** Where an execution came from; the same quota path serves all three. */
+export type TriggerSource = "manual" | "webhook" | "schedule";
+
+/** Trigger data shapes the engine hands to the trigger node (available as `$trigger` / first `$json`). */
+export interface WebhookTriggerData {
+  method: string;
+  query: Record<string, string>;
+  /** Whitelisted request headers only; auth headers and cookies are never stored. */
+  headers: Record<string, string>;
+  body: unknown;
+  receivedAt: string;
+}
+export interface ScheduleTriggerData {
+  scheduledAt: string;
+  timezone: string;
+  cron: string;
+}
 
 export const CONDITION_OPERATORS = ["equals", "not_equals", "contains", "gt", "lt", "exists", "is_empty"] as const;
 export type ConditionOperator = (typeof CONDITION_OPERATORS)[number];

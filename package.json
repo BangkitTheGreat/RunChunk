@@ -8,13 +8,14 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "tsx scripts/check-workflow.ts && tsx scripts/check-engine.ts"
+    "test": "tsx scripts/check-workflow.ts && tsx scripts/check-engine.ts && tsx scripts/check-triggers.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
     "@xyflow/react": "^12.12.0",
     "clsx": "^2.1.1",
+    "croner": "^10.0.1",
     "inngest": "^4.21.0",
     "lucide-react": "^1.48.0",
     "next": "16.3.6",

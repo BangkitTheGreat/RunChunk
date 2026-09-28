@@ -15,11 +15,12 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from '@xyflow/react';
-import type { Connection, Edge, EdgeChange, Node, NodeChange, NodeProps } from '@xyflow/react';
+import type { Connection, EdgeChange, Node, NodeChange, NodeProps } from '@xyflow/react';
 import {
   Activity,
   AlertTriangle,
   ArrowLeft,
+  CalendarClock,
   Check,
   Code2,
   GitBranch,
@@ -31,11 +32,13 @@ import {
   Moon,
   Play,
   Plus,
+  Power,
   Save,
   Sun,
   Timer,
   Trash2,
   Variable,
+  Webhook,
   Workflow,
   X,
 } from 'lucide-react';
@@ -49,21 +52,47 @@ import {
   UNSAFE_RETRY_METHODS,
   VARIABLE_KEY,
   FORBIDDEN_KEYS,
+  isTriggerType,
 } from '@/lib/workflow/types';
-import type { CredentialType, NodeType, WorkflowDefinition } from '@/lib/workflow/types';
+import type { CredentialType, NodeType, TriggerSource, WorkflowDefinition } from '@/lib/workflow/types';
+import { STARTER_TEMPLATES } from '@/lib/workflow/templates';
 import { createClient as createBrowserSupabase } from '@/lib/supabase/browser';
+import { JalurEdge, type JalurEdgeType } from './jalur-edge';
+import { ScheduleConfig, WebhookConfig } from './trigger-config';
+import { request } from './request';
+
+interface LastExecution {
+  execution_id: string;
+  status: string;
+  trigger_source: TriggerSource;
+  created_at: string;
+  finished_at: string | null;
+}
 
 interface WorkflowRow {
   id: string;
   name: string;
   version: number;
   definition: WorkflowDefinition;
+  is_active: boolean;
+  route_color: number;
   updated_at: string;
+  last_execution?: LastExecution | null;
+}
+
+interface Usage {
+  plan: string;
+  runs: number;
+  quota: number;
+  activeWorkflows: number;
+  activeLimit: number;
+  webhookPerMinute: number;
 }
 
 interface Execution {
   id: string;
   status: string;
+  trigger_source?: TriggerSource;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -103,6 +132,8 @@ type Detail = { execution: Execution; logs: ExecutionLog[] };
 
 const SUPPORTED_KINDS: readonly NodeType[] = [
   'trigger.manual',
+  'trigger.webhook',
+  'trigger.schedule',
   'action.http',
   'action.set_variable',
   'control.condition',
@@ -112,6 +143,8 @@ const SUPPORTED_KINDS: readonly NodeType[] = [
 
 const NODE_LABELS: Record<NodeType, string> = {
   'trigger.manual': 'nodes.triggerManual',
+  'trigger.webhook': 'nodes.triggerWebhook',
+  'trigger.schedule': 'nodes.triggerSchedule',
   'action.http': 'nodes.actionHttp',
   'action.set_variable': 'nodes.actionSetVariable',
   'control.condition': 'nodes.controlCondition',
@@ -121,6 +154,8 @@ const NODE_LABELS: Record<NodeType, string> = {
 
 const NODE_CATEGORY: Record<NodeType, 'trigger' | 'action' | 'control' | 'output'> = {
   'trigger.manual': 'trigger',
+  'trigger.webhook': 'trigger',
+  'trigger.schedule': 'trigger',
   'action.http': 'action',
   'action.set_variable': 'action',
   'control.condition': 'control',
@@ -130,6 +165,8 @@ const NODE_CATEGORY: Record<NodeType, 'trigger' | 'action' | 'control' | 'output
 
 const DEFAULT_DATA: Record<NodeType, () => Record<string, unknown>> = {
   'trigger.manual': () => ({}),
+  'trigger.webhook': () => ({}),
+  'trigger.schedule': () => ({ cron: '0 9 * * *', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }),
   'action.http': () => ({ url: '', method: 'GET', headers: {} }),
   'action.set_variable': () => ({ values: {} }),
   'control.condition': () => ({ left: '{{$json.status}}', operator: 'equals', right: '200' }),
@@ -141,6 +178,10 @@ function NodeIcon({ kind, size }: { kind: NodeType; size: number }) {
   switch (kind) {
     case 'trigger.manual':
       return <Play size={size} />;
+    case 'trigger.webhook':
+      return <Webhook size={size} />;
+    case 'trigger.schedule':
+      return <CalendarClock size={size} />;
     case 'action.http':
       return <Globe2 size={size} />;
     case 'action.set_variable':
@@ -162,7 +203,7 @@ function Station({ data, selected }: NodeProps<Node<StationData>>) {
       className={`station ${selected ? 'station-selected' : ''} ${data.statusKey ? `station-${data.statusKey}` : ''}`}
       style={stationStyle}
     >
-      {data.kind !== 'trigger.manual' && <Handle type="target" position={Position.Left} />}
+      {!isTriggerType(data.kind) && <Handle type="target" position={Position.Left} />}
       <span className="station-icon">
         <NodeIcon kind={data.kind} size={16} />
       </span>
@@ -187,24 +228,9 @@ function Station({ data, selected }: NodeProps<Node<StationData>>) {
 }
 
 const nodeTypes = { station: Station };
+const edgeTypes = { jalur: JalurEdge };
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers || {}) },
-    cache: 'no-store',
-  });
-  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (response.status === 401) {
-    window.location.assign('/login');
-    throw new Error('errors.unauthorized');
-  }
-  if (!response.ok) {
-    const errorKey = typeof data.error === 'string' ? data.error : 'errors.server';
-    throw new Error(errorKey);
-  }
-  return data as T;
-}
+const SOURCE_ICON: Record<TriggerSource, typeof Play> = { manual: Play, webhook: Webhook, schedule: CalendarClock };
 
 /** Collapses bursts of Realtime events into at most one in-flight refetch plus one follow-up. */
 function coalesce(fn: () => Promise<void>) {
@@ -319,6 +345,10 @@ function Workspace() {
   const [headers, setHeaders] = useState('');
   const [measured, setMeasured] = useState<Record<string, Node['measured']>>({});
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [usage, setUsage] = useState<Usage | null>(null);
+  // The canvas follows the newest execution (webhook/schedule runs arrive without a click) until the
+  // user pins an older one from the history list.
+  const followLatestRef = useRef(true);
 
   const activeRef = useRef<WorkflowRow | null>(active);
   useEffect(() => {
@@ -340,6 +370,15 @@ function Workspace() {
     setCredentials(data.credentials);
   }, []);
 
+  const loadUsage = useCallback(() => {
+    request<Usage>('/api/me').then(setUsage).catch(() => setUsage(null));
+  }, []);
+
+  const loadWorkflows = useCallback(async () => {
+    const data = await request<{ workflows: WorkflowRow[] }>('/api/workflows');
+    setRows(data.workflows);
+  }, []);
+
   useEffect(() => {
     // ponytail: theme read via lazy state init; loading screen hides icon so no hydration mismatch.
     request<{ workflows: WorkflowRow[] }>('/api/workflows')
@@ -350,6 +389,7 @@ function Workspace() {
     request<{ credentials: Credential[] }>('/api/credentials')
       .then((d) => setCredentials(d.credentials))
       .catch(() => setCredentials([]));
+    request<Usage>('/api/me').then(setUsage).catch(() => setUsage(null));
   }, [fail]);
 
   const workflowId = active?.id;
@@ -357,7 +397,18 @@ function Workspace() {
     if (!workflowId) return;
     try {
       const data = await request<{ executions: Execution[] }>(`/api/executions?workflowId=${workflowId}`);
-      if (activeRef.current?.id === workflowId) setHistory(data.executions);
+      if (activeRef.current?.id !== workflowId) return;
+      setHistory(data.executions);
+      const newest = data.executions[0];
+      if (newest && followLatestRef.current) {
+        setDetail((current) => {
+          if (current?.execution.id === newest.id) return current;
+          request<Detail>(`/api/executions/${newest.id}`)
+            .then((loaded) => setDetail((again) => (followLatestRef.current && again?.execution.id !== loaded.execution.id ? loaded : again)))
+            .catch(fail);
+          return current;
+        });
+      }
     } catch (e) {
       fail(e);
     }
@@ -406,6 +457,7 @@ function Workspace() {
         body: JSON.stringify({
           name: current.name,
           definition: current.definition,
+          routeColor: current.route_color,
           expectedVersion: current.version,
         }),
       });
@@ -462,6 +514,11 @@ function Workspace() {
 
   const open = (row: WorkflowRow | null, nextView: 'workflows' | 'credentials' = 'workflows') => {
     if (dirty && !confirm(t('editor.discard'))) return;
+    followLatestRef.current = true;
+    if (!row) {
+      loadWorkflows().catch(fail);
+      loadUsage();
+    }
     setView(nextView);
     setActive(row);
     setMeasured({});
@@ -472,20 +529,22 @@ function Workspace() {
     setHistory([]);
   };
 
-  const create = async () => {
+  const create = async (template?: (typeof STARTER_TEMPLATES)[number]) => {
     setBusy(true);
     setError('');
     setDetail(null);
     setHistory([]);
+    followLatestRef.current = true;
     try {
       const { workflow } = await request<{ workflow: WorkflowRow }>('/api/workflows', {
         method: 'POST',
         body: JSON.stringify({
-          name: name.trim() || t('dashboard.untitled'),
-          definition: {
+          name: template ? t(`dashboard.templates.${template.key}.name`) : name.trim() || t('dashboard.untitled'),
+          definition: template?.definition ?? {
             nodes: [{ id: 'manual', type: 'trigger.manual', position: { x: 100, y: 140 }, data: {} }],
             edges: [],
           },
+          ...(template ? { routeColor: template.routeColor } : {}),
         }),
       });
       setRows((r) => [workflow, ...r]);
@@ -549,6 +608,7 @@ function Workspace() {
     const ok = await save();
     if (!ok) return;
     setBusy(true);
+    followLatestRef.current = true;
     try {
       const { executionId } = await request<{ executionId: string }>(`/api/workflows/${active.id}/run`, {
         method: 'POST',
@@ -561,7 +621,33 @@ function Workspace() {
       fail(e);
     } finally {
       setBusy(false);
+      loadUsage();
     }
+  };
+
+  const setActivation = async (activeFlag: boolean) => {
+    if (!active) return;
+    if (dirty && !(await save())) return;
+    setBusy(true);
+    setError('');
+    try {
+      const { workflow } = await request<{ workflow: WorkflowRow }>(`/api/workflows/${active.id}/active`, {
+        method: 'PUT',
+        body: JSON.stringify({ active: activeFlag }),
+      });
+      setActive((a) => (a && a.id === workflow.id ? { ...a, is_active: workflow.is_active, version: workflow.version } : a));
+      setRows((r) => r.map((row) => (row.id === workflow.id ? { ...row, is_active: workflow.is_active } : row)));
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+      loadUsage();
+    }
+  };
+
+  const setRouteColor = (color: number) => {
+    setActive((a) => (a ? { ...a, route_color: color } : a));
+    setDirty(true);
   };
 
   const stamp = (value: string | null) => (value ? new Date(value).toLocaleString(locale) : '—');
@@ -588,6 +674,10 @@ function Workspace() {
         return `${String(n.data.amount ?? '')} ${translated('units.' + String(n.data.unit ?? 's'))}`;
       case 'action.set_variable':
         return Object.keys((n.data.values as Record<string, unknown>) ?? {}).join(', ') || t('editor.variables');
+      case 'trigger.webhook':
+        return `POST /api/v1/webhooks/… · ${active?.is_active ? t('editor.active') : t('editor.inactive')}`;
+      case 'trigger.schedule':
+        return `${String(n.data.cron || '—')} · ${String(n.data.timezone || 'UTC')} · ${active?.is_active ? t('editor.active') : t('editor.inactive')}`;
       default:
         return t('editor.manualHint');
     }
@@ -615,26 +705,26 @@ function Workspace() {
     };
   });
 
-  const flowEdges: Edge[] = (active?.definition.edges ?? []).map((e) => {
+  const routeColor = `var(--color-jalur-l${active?.route_color ?? 1})`;
+  const flowEdges: JalurEdgeType[] = (active?.definition.edges ?? []).map((e) => {
     const targetLog = logFor(e.target);
     const sourceLog = logFor(e.source);
-    // A route is dimmed once the run shows it was not taken.
+    // A route is dimmed once the run shows it was not taken; the train rides it while its target runs.
     const taken = !detail || !targetLog || targetLog.status !== 'skipped' || sourceLog?.status === 'skipped';
-    const color =
-      e.sourceHandle === 'true'
-        ? 'var(--color-success)'
-        : e.sourceHandle === 'false'
-          ? 'var(--color-jalur-l4)'
-          : 'var(--color-jalur-l1)';
+    const running = targetLog?.status === 'running' && sourceLog?.status === 'success';
     return {
       id: e.id,
       source: e.source,
       target: e.target,
       sourceHandle: e.sourceHandle ?? null,
       targetHandle: e.targetHandle ?? null,
-      type: 'smoothstep',
-      label: e.sourceHandle ? translated(e.sourceHandle === 'true' ? 'editor.portTrue' : 'editor.portFalse') : undefined,
-      style: { stroke: color, strokeWidth: 2, opacity: taken ? 1 : 0.3 },
+      type: 'jalur',
+      data: {
+        color: routeColor,
+        taken,
+        running,
+        label: e.sourceHandle ? translated(e.sourceHandle === 'true' ? 'editor.portTrue' : 'editor.portFalse') : undefined,
+      },
     };
   });
 
@@ -657,7 +747,7 @@ function Workspace() {
     }
   };
 
-  const handleEdgesChange = (changes: EdgeChange<Edge>[]) => {
+  const handleEdgesChange = (changes: EdgeChange<JalurEdgeType>[]) => {
     if (!active) return;
     if (changes.some((c) => c.type === 'remove')) {
       const nextEdges = applyEdgeChanges(changes, flowEdges);
@@ -685,6 +775,9 @@ function Workspace() {
 
   const method = String(currentNode?.data.method ?? 'GET');
   const retries = Number(currentNode?.data.retries ?? 0);
+  const triggerType = active?.definition.nodes.find((n) => isTriggerType(n.type))?.type;
+  const needsActivation = triggerType === 'trigger.webhook' || triggerType === 'trigger.schedule';
+  const planLabel = usage ? (usage.plan === 'pro' ? t('dashboard.planPro') : t('dashboard.planFree')) : '';
 
   return (
     <main className="app-shell">
@@ -708,6 +801,12 @@ function Workspace() {
           {t('common.credentials')}
         </button>
         <div className="side-bottom">
+          {usage && (
+            <div className="side-usage" title={t('dashboard.planHint')}>
+              <span className={`plan-badge plan-${usage.plan}`}>{planLabel}</span>
+              <small>{t('dashboard.usage', { runs: usage.runs, quota: usage.quota })}</small>
+            </div>
+          )}
           <button
             className="nav-item"
             onClick={async () => {
@@ -787,6 +886,14 @@ function Workspace() {
                 <p className="eyebrow">{t('dashboard.studio')}</p>
                 <h1>{t('dashboard.title')}</h1>
                 <p>{t('dashboard.description')}</p>
+                {usage && (
+                  <p className="usage-line" title={t('dashboard.planHint')}>
+                    <span className={`plan-badge plan-${usage.plan}`}>{planLabel}</span>
+                    <span>{t('dashboard.usage', { runs: usage.runs, quota: usage.quota })}</span>
+                    <span>·</span>
+                    <span>{t('dashboard.activeCount', { count: usage.activeWorkflows, limit: usage.activeLimit })}</span>
+                  </p>
+                )}
               </div>
               <form
                 className="create-row"
@@ -808,6 +915,22 @@ function Workspace() {
                 </button>
               </form>
             </div>
+            <section className="templates">
+              <div>
+                <h2>{t('dashboard.templatesTitle')}</h2>
+                <span>{t('dashboard.templatesHint')}</span>
+              </div>
+              <div className="template-grid">
+                {STARTER_TEMPLATES.map((template) => (
+                  <button key={template.key} className="template-card" disabled={busy} onClick={() => void create(template)}>
+                    <span className="route-color" style={{ background: `var(--color-jalur-l${template.routeColor})` }} />
+                    <strong>{t(`dashboard.templates.${template.key}.name`)}</strong>
+                    <small>{t(`dashboard.templates.${template.key}.description`)}</small>
+                    <span className="template-cta">{t('dashboard.useTemplate')}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
             {rows.length === 0 ? (
               <div className="empty-state">
                 <div className="empty-route" aria-hidden="true">
@@ -819,21 +942,40 @@ function Workspace() {
                 </div>
                 <h2>{t('dashboard.emptyTitle')}</h2>
                 <p>{t('dashboard.emptyBody')}</p>
-                <button className="primary-button" onClick={create} disabled={busy}>
+                <button className="primary-button" onClick={() => void create()} disabled={busy}>
                   <Plus size={16} />
                   {t('dashboard.create')}
                 </button>
               </div>
             ) : (
               <div className="workflow-list">
-                {rows.map((row, i) => (
-                  <button className="workflow-row" key={row.id} onClick={() => open(row)}>
-                    <span className="route-color" style={{ background: `var(--color-jalur-l${(i % 6) + 1})` }} />
-                    <Workflow size={18} />
-                    <span className="workflow-name">{row.name}</span>
-                    <time className="workflow-date">{stamp(row.updated_at)}</time>
-                  </button>
-                ))}
+                {rows.map((row) => {
+                  const trigger = row.definition.nodes.find((n) => isTriggerType(n.type))?.type ?? 'trigger.manual';
+                  const last = row.last_execution;
+                  const LastIcon = last ? SOURCE_ICON[last.trigger_source] : null;
+                  return (
+                    <button className="workflow-row" key={row.id} onClick={() => open(row)}>
+                      <span className="route-color" style={{ background: `var(--color-jalur-l${row.route_color ?? 1})` }} />
+                      <NodeIcon kind={trigger} size={18} />
+                      <span className="workflow-name">
+                        {row.name}
+                        <small>
+                          {t(NODE_LABELS[trigger])}
+                          {trigger !== 'trigger.manual' ? ` · ${row.is_active ? t('dashboard.activeBadge') : t('dashboard.inactiveBadge')}` : ''}
+                        </small>
+                      </span>
+                      {last ? (
+                        <span className={`status-pill status-${last.status}`}>
+                          {LastIcon && <LastIcon size={11} />}
+                          {translated('status.' + last.status)}
+                        </span>
+                      ) : (
+                        <span className="status-pill">{t('dashboard.neverRun')}</span>
+                      )}
+                      <time className="workflow-date">{stamp(last?.created_at ?? row.updated_at)}</time>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -855,6 +997,31 @@ function Workspace() {
                 />
               </div>
               <div className="toolbar-buttons">
+                <span className="color-picker" role="group" aria-label={t('editor.routeColor')}>
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`color-dot ${active.route_color === n ? 'is-current' : ''}`}
+                      style={{ background: `var(--color-jalur-l${n})` }}
+                      aria-label={t('editor.routeColorPick', { n })}
+                      aria-pressed={active.route_color === n}
+                      onClick={() => setRouteColor(n)}
+                    />
+                  ))}
+                </span>
+                {needsActivation && (
+                  <button
+                    className={`secondary-button active-toggle ${active.is_active ? 'is-active' : ''}`}
+                    disabled={busy}
+                    aria-pressed={active.is_active}
+                    title={t('editor.activeHint')}
+                    onClick={() => void setActivation(!active.is_active)}
+                  >
+                    <Power size={15} />
+                    {active.is_active ? t('editor.active') : t('editor.activate')}
+                  </button>
+                )}
                 <button className="secondary-button" disabled={busy} onClick={() => void save()}>
                   <Save size={15} />
                   {t('common.save')}
@@ -905,6 +1072,7 @@ function Workspace() {
                   nodes={nodes}
                   edges={flowEdges}
                   nodeTypes={nodeTypes}
+                  edgeTypes={edgeTypes}
                   // React Flow tags its wrapper `light` by default, which pulls in the light theme tokens.
                   colorMode={theme === 'light' ? 'light' : 'dark'}
                   onNodesChange={handleNodesChange}
@@ -1145,6 +1313,25 @@ function Workspace() {
 
                   {currentNode.type === 'trigger.manual' && <p className="field-help">{t('editor.manualHint')}</p>}
 
+                  {currentNode.type === 'trigger.webhook' && (
+                    <WebhookConfig
+                      key={active.id}
+                      workflowId={active.id}
+                      isActive={active.is_active}
+                      webhookPerMinute={usage?.webhookPerMinute ?? null}
+                      stamp={stamp}
+                      fail={fail}
+                    />
+                  )}
+
+                  {currentNode.type === 'trigger.schedule' && (
+                    <ScheduleConfig
+                      cron={String(currentNode.data.cron ?? '')}
+                      timezone={String(currentNode.data.timezone ?? '')}
+                      onChange={update}
+                    />
+                  )}
+
                   <div className="config-bottom">
                     <button className="danger-button" onClick={remove}>
                       <Trash2 size={15} />
@@ -1184,6 +1371,8 @@ function Workspace() {
                         className="execution-item"
                         key={ex.id}
                         onClick={async () => {
+                          // Picking an older run pins it; the newest keeps following.
+                          followLatestRef.current = history[0]?.id === ex.id;
                           try {
                             const data = await request<Detail>(`/api/executions/${ex.id}`);
                             setDetail(data);
@@ -1194,6 +1383,7 @@ function Workspace() {
                         }}
                       >
                         <span className={`status-pill status-${ex.status}`}>{translated('status.' + ex.status)}</span>
+                        <span className="execution-source">{translated('execution.source.' + (ex.trigger_source ?? 'manual'))}</span>
                         <time>{stamp(ex.started_at ?? ex.created_at)}</time>
                         <span className="execution-id">{ex.id.slice(0, 8)}</span>
                       </button>
@@ -1207,6 +1397,7 @@ function Workspace() {
                       <span className={`status-pill status-${detail.execution.status}`}>
                         {translated('status.' + detail.execution.status)}
                       </span>
+                      <span className="execution-source">{translated('execution.source.' + (detail.execution.trigger_source ?? 'manual'))}</span>
                       <time>{stamp(detail.execution.started_at ?? detail.execution.created_at)}</time>
                       <span>
                         {t('execution.finished')}: {stamp(detail.execution.finished_at)}
