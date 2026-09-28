@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RunChunk
 
-## Getting Started
+> Visual workflow automation platform (n8n lightweight alternative). Designed with transit-map visual logic, robust SSRF defense, and durable background execution.
+> *Platform otomatisasi visual (alternatif ringan n8n). Dirancang dengan visual transit map ("Jalur"), perlindungan SSRF ketat, dan eksekusi background yang andal.*
 
-First, run the development server:
+---
+
+## 1. Setup & Environment / *Pengaturan Lingkungan*
+
+Copy `.env.example` to `.env.local` and configure your credentials:
+*Salin `.env.example` ke `.env.local` dan isi kredensial Anda:*
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Required Variables / *Variabel Wajib*:
+- `NEXT_PUBLIC_SUPABASE_URL`: Supabase project URL / *URL proyek Supabase*
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase anon/publishable key / *Kunci anon/publik Supabase*
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role secret (server-only) / *Kunci rahasia service role (khusus server)*
+- `APP_URL`: Application origin (default: `http://localhost:3000`) for same-origin verification / *Origin aplikasi untuk verifikasi same-origin*
+- `INNGEST_EVENT_KEY` & `INNGEST_SIGNING_KEY`: Inngest credentials for event dispatch & signing / *Kredensial Inngest untuk pengiriman event*
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 2. Database Migrations & RLS Tests / *Migrasi Database & Pengujian RLS*
 
-## Learn More
+### Running Migrations / *Menjalankan Migrasi*:
+Apply migrations using Supabase CLI or directly in your Supabase SQL editor:
+*Terapkan migrasi menggunakan Supabase CLI atau langsung di editor SQL Supabase:*
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# Local Supabase CLI
+supabase db reset
+# Or apply files in order in SQL Editor / Atau terapkan berurutan lewat SQL Editor:
+# supabase/migrations/0001_init.sql
+# supabase/migrations/0002_service_role_grants.sql
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### RLS Isolation Check / *Uji Isolasi RLS*:
+Run the transactional rollback validation script to verify cross-account isolation, restricted profiles access, and immutable execution logs:
+*Jalankan skrip validasi rollback transaksional untuk memverifikasi isolasi lintas akun, pembatasan akses profil, dan riwayat log eksekusi:*
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -v ON_ERROR_STOP=1 \
+  -f supabase/tests/rls_cross_account.sql
+```
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 3. Development Commands / *Perintah Pengembangan*
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Pastikan `.env.local` memuat `INNGEST_DEV=1` untuk mode lokal. Kunci Inngest Cloud tidak diperlukan untuk Dev Server. Untuk produksi, gunakan `INNGEST_EVENT_KEY` dan `INNGEST_SIGNING_KEY` yang sah.
+
+Set `INNGEST_DEV=1` in `.env.local` for local mode. Cloud keys are not needed for Dev Server; production requires valid `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
+
+```bash
+npm install
+npm run dev -- --port 3008
+# Terminal lain / another terminal:
+npx inngest-cli dev -u http://localhost:3008/api/inngest
+```
+
+`inngest-cli` is a pinned development dependency. npm 12 blocks install scripts by default; `package.json` explicitly approves only `inngest-cli@1.45.1` so its required native binary can install. If installation was previously skipped, run `npm rebuild inngest-cli --foreground-scripts`. Do not use `inngest-cli@latest` via npx: its cached copy may lack the binary.
+
+`inngest-cli` terpasang sebagai dependensi pengembangan. npm 12 memblokir install script secara default; `package.json` hanya mengizinkan `inngest-cli@1.45.1` agar binari natif terpasang. Bila instalasi sebelumnya terlewat, jalankan `npm rebuild inngest-cli --foreground-scripts`. Hindari `inngest-cli@latest` via npx karena cache bisa tidak memiliki binari.
+
+---
+
+## 4. Current Verification Limits / *Batasan Verifikasi Saat Ini*
+
+- **Supabase/Postgres Runtime**: Live browser smoke passed with an isolated account: Manual → HTTP (`https://example.com`) → Output completed successfully; execution history and three node logs persisted. `supabase/migrations/0002_service_role_grants.sql` grants `service_role` write access needed by the engine. Cross-account RLS SQL test (`supabase/tests/rls_cross_account.sql`) still requires a direct Postgres connection.
+  *(Smoke test browser dengan akun terisolasi lulus: Manual → HTTP (`https://example.com`) → Keluaran berhasil; riwayat dan tiga log node tersimpan. `supabase/migrations/0002_service_role_grants.sql` memberi hak tulis `service_role` yang dibutuhkan engine. Uji SQL RLS lintas akun (`supabase/tests/rls_cross_account.sql`) masih butuh koneksi Postgres langsung.)*
+- **Inngest Cloud Dispatch**: Without live Inngest keys, workflow executions correctly fail-closed by marking `status: 'dispatch_failed'` with a HTTP `502` status code.
+  *(Tanpa kunci Inngest aktif, eksekusi alur kerja secara aman masuk ke status `dispatch_failed` dengan kode status HTTP `502`.)*

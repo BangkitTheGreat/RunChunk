@@ -1,5 +1,5 @@
 {
-  "name": "temp-app",
+  "name": "runchunk",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,18 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
+    "@xyflow/react": "^12.12.0",
+    "clsx": "^2.1.1",
+    "inngest": "^4.21.0",
+    "lucide-react": "^1.48.0",
     "next": "16.3.6",
+    "next-intl": "^4.14.7",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -20,7 +29,11 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "inngest-cli": "^1.45.1",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "inngest-cli@1.45.1": true
   }
 }
