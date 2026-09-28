@@ -69,7 +69,15 @@
     "vaultNotConfigured": "Vault is not configured on the server (CREDENTIALS_KEY_V1).",
     "workflowFailed": "Workflow failed.",
     "workflowNodeFailed": "A node failed.",
-    "executionPersistenceFailed": "Execution status could not be saved."
+    "executionPersistenceFailed": "Execution status could not be saved.",
+    "quotaExceeded": "This month's run quota is used up. It resets at the start of the month (UTC).",
+    "quotaUnavailable": "Quota could not be checked right now.",
+    "activeLimitReached": "This plan's active-workflow limit is reached. Deactivate another workflow first.",
+    "activationNotNeeded": "Workflows with a manual trigger do not need activation; click Run.",
+    "scheduleInvalid": "The schedule is not valid yet. Enter a correct cron expression and timezone.",
+    "rateLimited": "Too many requests to this webhook. Try again shortly.",
+    "webhookInvalidJson": "Webhook body is not valid JSON.",
+    "schedulePersistenceFailed": "Schedule could not be saved."
   },
   "dashboard": {
     "workspace": "WORKSPACE",
@@ -81,7 +89,29 @@
     "create": "New workflow",
     "emptyTitle": "No workflows yet",
     "emptyBody": "Create your first workflow with manual, HTTP, condition, and output nodes.",
-    "open": "Open workflow"
+    "open": "Open workflow",
+    "lastRun": "Last run",
+    "neverRun": "Never run",
+    "activeBadge": "Active",
+    "inactiveBadge": "Inactive",
+    "usage": "{runs}/{quota} runs this month",
+    "activeCount": "{count}/{limit} active workflows",
+    "planFree": "Free",
+    "planPro": "Pro (simulated)",
+    "planHint": "The Pro plan is a simulation set by an admin; there is no payment.",
+    "templatesTitle": "Start from a template",
+    "templatesHint": "Safe public endpoints, no bundled secrets. Runs as-is.",
+    "templates": {
+      "httpCheck": {
+        "name": "Check a public API",
+        "description": "Manual → HTTP GET httpbin.org/json → status 200 condition → two outputs."
+      },
+      "webhookLead": {
+        "name": "Incoming webhook lead",
+        "description": "Webhook → validate email → set variables → output. Good for a curl demo."
+      }
+    },
+    "useTemplate": "Use template"
   },
   "editor": {
     "paletteTitle": "Nodes",
@@ -134,7 +164,47 @@
     "retryWarning": "{method} can change data on the target server. Retrying may repeat the side effect, for example saving a record twice.",
     "headersSecretHint": "Do not put API keys in headers. Store them as a Credential and pick it above.",
     "variableInvalid": "Variable names are required: letters, digits, _ or -, starting with a letter or _. Changes are not applied yet.",
-    "variableDuplicate": "That variable name is already used. Changes are not applied until names are unique."
+    "variableDuplicate": "That variable name is already used. Changes are not applied until names are unique.",
+    "active": "Active",
+    "inactive": "Inactive",
+    "activate": "Activate",
+    "deactivate": "Deactivate",
+    "activeHint": "Webhooks and schedules only run while the workflow is Active. Activation counts toward the plan limit.",
+    "manualNoActivation": "Manual triggers do not need activation.",
+    "routeColor": "Route color",
+    "routeColorPick": "Route L{n}",
+    "webhookHint": "Request data is available as '{{$json.body}}', '{{$json.query}}' and '{{$json.headers}}' in the next node.",
+    "webhookNoUrl": "This workflow has no webhook URL yet.",
+    "webhookCreate": "Create URL",
+    "webhookRotate": "Rotate token",
+    "webhookRemove": "Remove URL",
+    "webhookUrl": "Webhook URL",
+    "webhookMasked": "…{hint}",
+    "webhookTokenOnce": "Save this URL now. The token is shown once; if you lose it, rotate to get a new one.",
+    "webhookCopy": "Copy",
+    "webhookCopied": "Copied",
+    "webhookCurl": "Example call",
+    "webhookNeedsActive": "The URL only accepts requests while the workflow is Active. Response: 202 Accepted + executionId; the result appears in history.",
+    "webhookLastReceived": "Last request",
+    "webhookRotated": "Rotated",
+    "webhookCreated": "Created",
+    "webhookConfirmRotate": "Rotate the token? The old URL stops working immediately.",
+    "webhookConfirmRemove": "Remove the webhook URL? Senders using it will get 404.",
+    "webhookLimit": "Limit: {limit} requests/minute per URL.",
+    "schedulePreset": "Pattern",
+    "schedulePresets": {
+      "every5m": "Every 5 minutes",
+      "hourly": "Every hour",
+      "daily9": "Daily at 09:00",
+      "weekdays9": "Weekdays at 09:00",
+      "custom": "Custom (cron)"
+    },
+    "scheduleCron": "Cron expression (minute hour day month weekday)",
+    "scheduleTimezone": "Timezone",
+    "scheduleNext": "Next runs",
+    "scheduleInvalid": "Cron or timezone is not valid yet.",
+    "scheduleHint": "Runs only while the workflow is Active. Slots missed while the system was down are not caught up. When the quota runs out the schedule is deactivated automatically and recorded in history.",
+    "scheduleData": "Trigger data: '{{$json.scheduledAt}}', '{{$json.timezone}}', '{{$json.cron}}'."
   },
   "nodes": {
     "triggerManual": "Manual Trigger",
@@ -156,7 +226,13 @@
     "truncated": "truncated",
     "attempts": "{count} attempts",
     "live": "Live",
-    "offline": "Reconnecting…"
+    "offline": "Reconnecting…",
+    "source": {
+      "manual": "Manual",
+      "webhook": "Webhook",
+      "schedule": "Schedule"
+    },
+    "following": "Following the latest run"
   },
   "status": {
     "pending": "Pending",

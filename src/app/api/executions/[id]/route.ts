@@ -7,7 +7,7 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/executions/
     const { supabase, user } = await authenticate();
     const { data: execution, error } = await supabase
       .from("executions")
-      .select("id,workflow_id,status,definition_snapshot,definition_version,trigger_data,started_at,finished_at,created_at,output,error")
+      .select("id,workflow_id,status,trigger_source,definition_snapshot,definition_version,trigger_data,started_at,finished_at,created_at,output,error")
       .eq("id", id)
       .eq("user_id", user.id)
       .maybeSingle();

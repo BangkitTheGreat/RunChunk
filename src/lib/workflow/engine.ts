@@ -2,7 +2,7 @@ import { evaluateCondition } from "./condition";
 import { resolveExpression, type ExpressionScope } from "./expression";
 import { preview, redact } from "./redact";
 import { delaySeconds, retryCount, retryWaitSeconds } from "./validate";
-import { MAX_RUN_SECONDS, UNARY_OPERATORS, type ConditionOperator, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from "./types";
+import { MAX_RUN_SECONDS, UNARY_OPERATORS, isTriggerType, type ConditionOperator, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from "./types";
 import type { SafeHttpResponse } from "./http";
 
 // Durable workflow executor, independent of Inngest so it can be tested with a fake step runner.
@@ -135,7 +135,7 @@ export async function executeWorkflow(input: EngineInput, deps: EngineDeps): Pro
 
   for (const node of order) {
     const active = incoming.get(node.id)!.filter((edge) => activeEdges.has(edge.id));
-    if (node.type !== "trigger.manual" && active.length === 0) {
+    if (!isTriggerType(node.type) && active.length === 0) {
       await log(`log-skipped-${node.id}`, { nodeId: node.id, status: "skipped", summary: "status.skipped", durationMs: 0 });
       continue;
     }
@@ -160,6 +160,8 @@ export async function executeWorkflow(input: EngineInput, deps: EngineDeps): Pro
 
       switch (node.type) {
         case "trigger.manual":
+        case "trigger.webhook":
+        case "trigger.schedule":
           output = triggerData;
           break;
         case "action.http": {

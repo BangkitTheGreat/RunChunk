@@ -69,7 +69,15 @@
     "vaultNotConfigured": "Vault belum dikonfigurasi di server (CREDENTIALS_KEY_V1).",
     "workflowFailed": "Workflow gagal.",
     "workflowNodeFailed": "Sebuah node gagal dijalankan.",
-    "executionPersistenceFailed": "Status eksekusi gagal disimpan."
+    "executionPersistenceFailed": "Status eksekusi gagal disimpan.",
+    "quotaExceeded": "Kuota run bulan ini sudah habis. Kuota di-reset awal bulan (UTC).",
+    "quotaUnavailable": "Kuota tidak dapat diperiksa saat ini.",
+    "activeLimitReached": "Batas workflow aktif untuk plan ini sudah tercapai. Nonaktifkan workflow lain dulu.",
+    "activationNotNeeded": "Workflow dengan pemicu manual tidak perlu diaktifkan; klik Jalankan.",
+    "scheduleInvalid": "Jadwal belum valid. Isi ekspresi cron dan zona waktu yang benar.",
+    "rateLimited": "Terlalu banyak request ke webhook ini. Coba lagi sebentar.",
+    "webhookInvalidJson": "Body webhook bukan JSON yang valid.",
+    "schedulePersistenceFailed": "Jadwal gagal disimpan."
   },
   "dashboard": {
     "workspace": "RUANG KERJA",
@@ -81,7 +89,29 @@
     "create": "Workflow baru",
     "emptyTitle": "Belum ada workflow",
     "emptyBody": "Buat workflow pertama Anda dengan node manual, HTTP, kondisi, dan output.",
-    "open": "Buka workflow"
+    "open": "Buka workflow",
+    "lastRun": "Run terakhir",
+    "neverRun": "Belum pernah dijalankan",
+    "activeBadge": "Aktif",
+    "inactiveBadge": "Nonaktif",
+    "usage": "{runs}/{quota} run bulan ini",
+    "activeCount": "{count}/{limit} workflow aktif",
+    "planFree": "Free",
+    "planPro": "Pro (simulasi)",
+    "planHint": "Plan Pro adalah simulasi yang ditetapkan admin; tidak ada pembayaran.",
+    "templatesTitle": "Mulai dari template",
+    "templatesHint": "Endpoint publik yang aman, tanpa rahasia bawaan. Bisa langsung dijalankan.",
+    "templates": {
+      "httpCheck": {
+        "name": "Cek API publik",
+        "description": "Manual → HTTP GET httpbin.org/json → Kondisi status 200 → dua keluaran."
+      },
+      "webhookLead": {
+        "name": "Webhook lead masuk",
+        "description": "Webhook → validasi email → simpan variabel → keluaran. Cocok untuk demo curl."
+      }
+    },
+    "useTemplate": "Pakai template"
   },
   "editor": {
     "discard": "Buang perubahan yang belum tersimpan?",
@@ -134,7 +164,47 @@
     "retryWarning": "Metode {method} bisa mengubah data di server tujuan. Mengulang permintaan bisa menimbulkan efek ganda, misalnya data tersimpan dua kali.",
     "headersSecretHint": "Jangan tulis API key di header. Simpan di Credential lalu pilih di atas.",
     "variableInvalid": "Nama variabel wajib diisi: huruf, angka, _ atau -, diawali huruf atau _. Perubahan belum diterapkan.",
-    "variableDuplicate": "Nama variabel sudah dipakai. Perubahan belum diterapkan sampai namanya unik."
+    "variableDuplicate": "Nama variabel sudah dipakai. Perubahan belum diterapkan sampai namanya unik.",
+    "active": "Aktif",
+    "inactive": "Nonaktif",
+    "activate": "Aktifkan",
+    "deactivate": "Nonaktifkan",
+    "activeHint": "Webhook dan jadwal hanya berjalan saat workflow Aktif. Aktivasi dihitung ke batas plan.",
+    "manualNoActivation": "Pemicu manual tidak perlu diaktifkan.",
+    "routeColor": "Warna jalur",
+    "routeColorPick": "Jalur L{n}",
+    "webhookHint": "Data request tersedia sebagai '{{$json.body}}', '{{$json.query}}', dan '{{$json.headers}}' di node berikutnya.",
+    "webhookNoUrl": "Belum ada URL webhook untuk workflow ini.",
+    "webhookCreate": "Buat URL",
+    "webhookRotate": "Rotasi token",
+    "webhookRemove": "Hapus URL",
+    "webhookUrl": "URL webhook",
+    "webhookMasked": "…{hint}",
+    "webhookTokenOnce": "Simpan URL ini sekarang. Token hanya ditampilkan sekali; kalau hilang, rotasi untuk membuat yang baru.",
+    "webhookCopy": "Salin",
+    "webhookCopied": "Tersalin",
+    "webhookCurl": "Contoh pemanggilan",
+    "webhookNeedsActive": "URL hanya menerima request saat workflow Aktif. Response: 202 Accepted + executionId; hasilnya muncul di riwayat.",
+    "webhookLastReceived": "Request terakhir",
+    "webhookRotated": "Dirotasi",
+    "webhookCreated": "Dibuat",
+    "webhookConfirmRotate": "Rotasi token? URL lama langsung berhenti bekerja.",
+    "webhookConfirmRemove": "Hapus URL webhook? Pengirim yang memakainya akan menerima 404.",
+    "webhookLimit": "Batas: {limit} request/menit per URL.",
+    "schedulePreset": "Pola",
+    "schedulePresets": {
+      "every5m": "Setiap 5 menit",
+      "hourly": "Setiap jam",
+      "daily9": "Setiap hari 09.00",
+      "weekdays9": "Hari kerja 09.00",
+      "custom": "Kustom (cron)"
+    },
+    "scheduleCron": "Ekspresi cron (menit jam tanggal bulan hari)",
+    "scheduleTimezone": "Zona waktu",
+    "scheduleNext": "Run berikutnya",
+    "scheduleInvalid": "Cron atau zona waktu belum valid.",
+    "scheduleHint": "Berjalan hanya saat workflow Aktif. Slot yang terlewat saat sistem mati tidak dikejar. Jika kuota habis, jadwal dinonaktifkan otomatis dan tercatat di riwayat.",
+    "scheduleData": "Data pemicu: '{{$json.scheduledAt}}', '{{$json.timezone}}', '{{$json.cron}}'."
   },
   "nodes": {
     "triggerManual": "Pemicu Manual",
@@ -156,7 +226,13 @@
     "truncated": "dipotong",
     "attempts": "{count} percobaan",
     "live": "Live",
-    "offline": "Menyambung ulang…"
+    "offline": "Menyambung ulang…",
+    "source": {
+      "manual": "Manual",
+      "webhook": "Webhook",
+      "schedule": "Jadwal"
+    },
+    "following": "Mengikuti run terbaru"
   },
   "status": {
     "pending": "Menunggu",

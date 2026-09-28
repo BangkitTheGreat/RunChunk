@@ -10,7 +10,7 @@ export async function GET(request: Request) {
 
     let query = supabase
       .from("executions")
-      .select("id,workflow_id,status,started_at,finished_at,created_at,error")
+      .select("id,workflow_id,status,trigger_source,started_at,finished_at,created_at,error")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(limit);
