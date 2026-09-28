@@ -20,6 +20,7 @@ cp .env.example .env.local
 - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role secret (server-only) / *Kunci rahasia service role (khusus server)*
 - `APP_URL`: Application origin (default: `http://localhost:3000`) for same-origin verification / *Origin aplikasi untuk verifikasi same-origin*
 - `INNGEST_EVENT_KEY` & `INNGEST_SIGNING_KEY`: Inngest credentials for event dispatch & signing / *Kredensial Inngest untuk pengiriman event*
+- `CREDENTIALS_KEY_V1`: 32-byte base64 key for the Credentials Vault (AES-256-GCM), server-only. `CREDENTIALS_KEY_VERSION` picks the key for new secrets (default `1`) / *Kunci 32 byte (base64) untuk Vault credential, khusus server. `CREDENTIALS_KEY_VERSION` memilih kunci untuk rahasia baru (default `1`)*
 
 ---
 
@@ -35,6 +36,7 @@ supabase db reset
 # Or apply files in order in SQL Editor / Atau terapkan berurutan lewat SQL Editor:
 # supabase/migrations/0001_init.sql
 # supabase/migrations/0002_service_role_grants.sql
+# supabase/migrations/0003_credentials.sql
 ```
 
 ### RLS Isolation Check / *Uji Isolasi RLS*:
@@ -45,6 +47,24 @@ Run the transactional rollback validation script to verify cross-account isolati
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -v ON_ERROR_STOP=1 \
   -f supabase/tests/rls_cross_account.sql
+```
+
+Without Supabase/Docker, the same test runs on plain PostgreSQL using a small stub of the Supabase pieces (`auth.users`, `auth.uid()`, API roles):
+*Tanpa Supabase/Docker, uji yang sama bisa dijalankan di PostgreSQL biasa memakai stub kecil untuk bagian khas Supabase:*
+
+```bash
+DB="postgresql://postgres@localhost:5432/runchunk_test"
+psql "$DB" -v ON_ERROR_STOP=1 -f supabase/tests/vanilla_postgres_stub.sql
+for f in supabase/migrations/*.sql; do psql "$DB" -v ON_ERROR_STOP=1 -f "$f"; done
+psql "$DB" -v ON_ERROR_STOP=1 -f supabase/tests/rls_cross_account.sql
+```
+
+### Automated checks / *Pemeriksaan otomatis*
+
+```bash
+npm run lint
+npm run typecheck   # next typegen + tsc
+npm test            # validator, SSRF, expression, engine (branching, delay, retry, replay), Vault, redaction
 ```
 
 ---
@@ -72,5 +92,7 @@ npx inngest-cli dev -u http://localhost:3008/api/inngest
 
 - **Supabase/Postgres Runtime**: Live browser smoke passed with an isolated account: Manual → HTTP (`https://example.com`) → Output completed successfully; execution history and three node logs persisted. `supabase/migrations/0002_service_role_grants.sql` grants `service_role` write access needed by the engine. Cross-account RLS SQL test (`supabase/tests/rls_cross_account.sql`) still requires a direct Postgres connection.
   *(Smoke test browser dengan akun terisolasi lulus: Manual → HTTP (`https://example.com`) → Keluaran berhasil; riwayat dan tiga log node tersimpan. `supabase/migrations/0002_service_role_grants.sql` memberi hak tulis `service_role` yang dibutuhkan engine. Uji SQL RLS lintas akun (`supabase/tests/rls_cross_account.sql`) masih butuh koneksi Postgres langsung.)*
+- **Weeks 3–4 (branching, Vault, redaction, Realtime, retry)**: covered by `npm test` (engine run through a fake Inngest step runner with replay), the RLS suite on PostgreSQL 16, and a Playwright render of the editor against mocked API responses. Not yet run against live Supabase Realtime/Auth and Inngest Dev Server. See `docs/VERIFICATION.md`.
+  *(Minggu 3–4 diverifikasi lewat `npm test`, suite RLS di PostgreSQL 16, dan render editor dengan Playwright memakai API tiruan. Belum diuji dengan Supabase Realtime/Auth dan Inngest Dev Server sungguhan. Lihat `docs/VERIFICATION.md`.)*
 - **Inngest Cloud Dispatch**: Without live Inngest keys, workflow executions correctly fail-closed by marking `status: 'dispatch_failed'` with a HTTP `502` status code.
   *(Tanpa kunci Inngest aktif, eksekusi alur kerja secara aman masuk ke status `dispatch_failed` dengan kode status HTTP `502`.)*
