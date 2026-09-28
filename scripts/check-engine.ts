@@ -267,6 +267,11 @@ function vaultChecks() {
   flipped[0] ^= 1;
   assert.throws(() => decryptSecret({ ...a, ciphertext: flipped.toString("base64") }, USER, CRED), /errors\.credentialDecryptFailed/, "tamper detected");
   assert.throws(() => decryptSecret({ ...a, key_version: 2 }, USER, CRED), /errors\.credentialDecryptFailed/, "key version is authenticated");
+  // AAD purpose: a webhook signing secret sealed for one endpoint can never open as a credential.
+  const signing = encryptSecret({ type: "webhook_secret", value: "whsec-0123456789" }, USER, CRED, "webhook-signing");
+  assert.deepEqual(decryptSecret(signing, USER, CRED, "webhook-signing"), { type: "webhook_secret", value: "whsec-0123456789" });
+  assert.throws(() => decryptSecret(signing, USER, CRED), /errors\.credentialDecryptFailed/, "purpose is authenticated");
+  assert.throws(() => decryptSecret(a, USER, CRED, "webhook-signing"), /errors\.credentialDecryptFailed/);
   process.env.CREDENTIALS_KEY_VERSION = "2";
   const v2 = encryptSecret(secret, USER, CRED);
   assert.equal(v2.key_version, 2);

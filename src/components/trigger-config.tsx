@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { Check, Copy, KeyRound, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Copy, KeyRound, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
 import { nextRuns } from '@/lib/workflow/schedule';
 import { request } from './request';
 
@@ -13,6 +13,8 @@ interface WebhookEndpoint {
   created_at: string;
   rotated_at: string | null;
   last_received_at: string | null;
+  signing_hint: string | null;
+  signing_created_at: string | null;
 }
 
 /**
@@ -36,9 +38,11 @@ export function WebhookConfig({
   const [endpoint, setEndpoint] = useState<WebhookEndpoint | null>(null);
   const [urlPrefix, setUrlPrefix] = useState('');
   const [freshUrl, setFreshUrl] = useState<string | null>(null);
+  const [freshSecret, setFreshSecret] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedSecret, setCopiedSecret] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,13 +90,42 @@ export function WebhookConfig({
     }
   };
 
-  const copy = async () => {
-    if (!freshUrl) return;
+  const copy = async (text: string | null, mark: (value: boolean) => void) => {
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(freshUrl);
-      setCopied(true);
+      await navigator.clipboard.writeText(text);
+      mark(true);
     } catch {
-      setCopied(false);
+      mark(false);
+    }
+  };
+
+  const setSigning = async (rotate: boolean) => {
+    if (rotate && !confirm(t('editor.webhookSignatureConfirmRotate'))) return;
+    setBusy(true);
+    try {
+      const data = await request<{ endpoint: WebhookEndpoint; secret: string }>(`/api/workflows/${workflowId}/webhook/signature`, { method: 'POST' });
+      setEndpoint(data.endpoint);
+      setFreshSecret(data.secret);
+      setCopiedSecret(false);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disableSigning = async () => {
+    if (!confirm(t('editor.webhookSignatureConfirmDisable'))) return;
+    setBusy(true);
+    try {
+      const data = await request<{ endpoint: WebhookEndpoint }>(`/api/workflows/${workflowId}/webhook/signature`, { method: 'DELETE' });
+      setEndpoint(data.endpoint);
+      setFreshSecret(null);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -116,7 +149,7 @@ export function WebhookConfig({
             <>
               <pre className="result-output url-box">POST {freshUrl}</pre>
               <div className="toolbar-buttons">
-                <button className="secondary-button" onClick={() => void copy()}>
+                <button className="secondary-button" onClick={() => void copy(freshUrl, setCopied)}>
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                   {copied ? t('editor.webhookCopied') : t('editor.webhookCopy')}
                 </button>
@@ -144,6 +177,47 @@ export function WebhookConfig({
               {t('editor.webhookRemove')}
             </button>
           </div>
+
+          <span className="field-label signing-title">{t('editor.webhookSignature')}</span>
+          <p className="field-help">{t('editor.webhookSignatureHint')}</p>
+          {!endpoint.signing_hint ? (
+            <>
+              <p className="field-help">{t('editor.webhookSignatureNone')}</p>
+              <button className="secondary-button" disabled={busy} onClick={() => void setSigning(false)}>
+                <ShieldCheck size={14} />
+                {t('editor.webhookSignatureEnable')}
+              </button>
+            </>
+          ) : (
+            <>
+              {freshSecret && (
+                <>
+                  <span className="field-label">{t('editor.webhookSignatureSecret')}</span>
+                  <pre className="result-output url-box">{freshSecret}</pre>
+                  <div className="toolbar-buttons">
+                    <button className="secondary-button" onClick={() => void copy(freshSecret, setCopiedSecret)}>
+                      {copiedSecret ? <Check size={14} /> : <Copy size={14} />}
+                      {copiedSecret ? t('editor.webhookCopied') : t('editor.webhookCopy')}
+                    </button>
+                  </div>
+                  <p className="field-warning" role="status">{t('editor.webhookSignatureOnce')}</p>
+                  <span className="field-label">{t('editor.webhookSignatureExample')}</span>
+                  <pre className="result-output url-box">{`TS=$(date +%s); BODY='{"email":"demo@example.com"}'\nSIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac '${freshSecret}' | sed 's/^.* //')\ncurl -X POST '${freshUrl ?? `${urlPrefix}…${endpoint.token_hint}`}' \\\n  -H 'content-type: application/json' \\\n  -H "x-runchunk-signature: t=$TS,v1=$SIG" \\\n  -d "$BODY"`}</pre>
+                </>
+              )}
+              <p className="field-help">{t('editor.webhookSignatureSet', { date: stamp(endpoint.signing_created_at), hint: endpoint.signing_hint })}</p>
+              <div className="toolbar-buttons">
+                <button className="secondary-button" disabled={busy} onClick={() => void setSigning(true)}>
+                  <RefreshCw size={14} />
+                  {t('editor.webhookSignatureRotate')}
+                </button>
+                <button className="danger-button" disabled={busy} onClick={() => void disableSigning()}>
+                  <ShieldOff size={14} />
+                  {t('editor.webhookSignatureDisable')}
+                </button>
+              </div>
+            </>
+          )}
         </>
       )}
       <p className="field-help">{t('editor.webhookHint')}</p>

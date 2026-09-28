@@ -68,6 +68,14 @@ begin
   if r.allowed or r.retry_after < 1 or r.retry_after > 60 then raise exception 'FAIL: 11th hit allowed or bad retry_after (%)', r.retry_after; end if;
   perform public.prune_rate_limits();
 
+  -- signing columns are all-or-none, and service_role can set/clear them
+  update public.webhook_endpoints set signing_ciphertext = 'c', signing_nonce = 'n', signing_tag = 't', signing_key_version = 1, signing_hint = 'ab12', signing_created_at = now() where id = ep;
+  begin
+    update public.webhook_endpoints set signing_hint = null where id = ep;
+    raise exception 'FAIL: partial signing columns accepted';
+  exception when check_violation then null;
+  end;
+
   -- schedules: due only while the workflow is active; claim is compare-and-swap
   insert into public.workflow_schedules (workflow_id, user_id, cron, timezone, next_run_at)
     values ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', '*/1 * * * *', 'Asia/Jakarta', slot)
@@ -96,10 +104,26 @@ begin
     raise exception 'FAIL: my_usage wrong (plan=%, runs=%, quota=%, active=%/%)', r.plan, r.runs, r.quota, r.active_workflows, r.active_limit;
   end if;
   if (select count(*) from public.usage_counters) <> 1 then raise exception 'FAIL: A cannot see own usage row'; end if;
-  if (select count(*) from (select id, token_hint, last_received_at from public.webhook_endpoints) e) <> 1 then raise exception 'FAIL: A cannot see own webhook metadata'; end if;
+  if (select count(*) from (select id, token_hint, last_received_at, signing_hint, signing_created_at from public.webhook_endpoints) e) <> 1 then raise exception 'FAIL: A cannot see own webhook metadata'; end if;
   begin
     perform token_hash from public.webhook_endpoints;
     raise exception 'FAIL: A read webhook token hash';
+  exception when insufficient_privilege then null;
+  end;
+  -- each secret column on its own: one leaked column must fail the suite
+  begin
+    perform signing_ciphertext from public.webhook_endpoints;
+    raise exception 'FAIL: A read webhook signing ciphertext';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform signing_nonce from public.webhook_endpoints;
+    raise exception 'FAIL: A read webhook signing nonce';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform signing_tag from public.webhook_endpoints;
+    raise exception 'FAIL: A read webhook signing tag';
   exception when insufficient_privilege then null;
   end;
   if (select count(*) from public.workflow_schedules) <> 2 then raise exception 'FAIL: A cannot see own schedules'; end if;

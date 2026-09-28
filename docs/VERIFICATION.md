@@ -94,6 +94,14 @@ Perintah yang dijalankan (2026-09-28, lingkungan yang sama):
 | Plan Pro simulasi, client tak bisa ubah plan | Terverifikasi (DB) | suite RLS lama (`B upgraded own plan` ditolak) + `my_usage` mengembalikan plan/quota; label "(simulasi)" di UI |
 | **Demo minggu 6**: curl → 202 → kanvas bereaksi realtime → riwayat | Sebagian | UI mengikuti execution terbaru tanpa klik (Playwright, lewat refetch); jalur webhook end-to-end dengan Supabase + Inngest belum dijalankan |
 
+## Stretch (branch `claude/clever-mendel-4klnht-stretch`)
+
+| Item | Status | Bukti |
+|---|---|---|
+| Pemecahan `run-chunk.tsx` menjadi 8 modul | Terverifikasi | typecheck, lint, dan **ketiga** skrip Playwright minggu 3–6 memberi hasil identik sebelum dan sesudah pemecahan (0 error halaman) |
+| Tanda tangan HMAC webhook | Terverifikasi (logika + UI) | tes: roundtrip, hex huruf besar, toleransi ±300 s (301 s ditolak), body diubah, rahasia salah, header hilang/rusak, replay MAC dengan timestamp baru ditolak, dua `v1=` saat rotasi; Vault: purpose `webhook-signing` tidak bisa dibuka sebagai credential. Mutasi 4/4 tertangkap (tanpa window replay, timestamp di luar MAC, terima MAC apa pun, purpose diabaikan). SQL: kolom `signing_ciphertext` tak terbaca client, constraint all-or-none. Playwright: aktifkan → rahasia + contoh curl bertanda tangan tampil; nonaktifkan → kembali |
+| Verifikasi di route publik dengan Supabase | Belum | tambahkan ke tes live: aktifkan tanda tangan, curl tanpa header → `401 webhookSignatureMissing`, dengan `openssl` sesuai contoh → `202`, ubah satu karakter body → `401 webhookSignatureInvalid` |
+
 ## Yang perlu dijalankan dengan layanan sungguhan
 
 1. Terapkan migrasi `0003_credentials.sql`, isi `CREDENTIALS_KEY_V1` di `.env.local`.

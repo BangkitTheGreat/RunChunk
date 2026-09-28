@@ -1,12 +1,17 @@
 import { json } from "@/lib/api";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { start } from "@/lib/executions/db";
+import { decryptSecret } from "@/lib/vault";
 import { validateDefinition } from "@/lib/workflow/validate";
-import { MAX_WEBHOOK_BODY_BYTES, TOKEN_PATTERN, WEBHOOK_WINDOW_SECONDS, buildTriggerData, hashToken, parseWebhookBody } from "@/lib/webhook";
+import {
+  MAX_WEBHOOK_BODY_BYTES, SIGNATURE_HEADER, TOKEN_PATTERN, WEBHOOK_WINDOW_SECONDS,
+  buildTriggerData, hashToken, parseWebhookBody, verifySignature,
+} from "@/lib/webhook";
 
 // Public, unauthenticated entry point. The token is the only credential, so every failure that could
 // reveal whether a token exists returns the same 404. Same-origin checks do not apply: callers are
 // external systems. Everything is read through the service role and scoped by the endpoint's owner.
+// Order: token -> active workflow -> rate limit -> body -> optional signature -> definition -> quota.
 
 const notFound = () => json({ error: "errors.notFound" }, 404);
 
@@ -36,7 +41,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/v1/webhooks
     const admin = createAdminClient();
 
     const { data: endpoint, error: endpointError } = await admin.from("webhook_endpoints")
-      .select("id,workflow_id,user_id").eq("token_hash", hashToken(token)).maybeSingle();
+      .select("id,workflow_id,user_id,signing_ciphertext,signing_nonce,signing_tag,signing_key_version")
+      .eq("token_hash", hashToken(token)).maybeSingle();
     if (endpointError) throw endpointError;
     if (!endpoint) return notFound();
     const { data: workflow, error: workflowError } = await admin.from("workflows")
@@ -59,12 +65,28 @@ export async function POST(request: Request, ctx: RouteContext<"/api/v1/webhooks
       });
     }
 
+    let raw: string;
+    try {
+      raw = await readBody(request);
+    } catch {
+      return json({ error: "errors.tooLarge" }, 413);
+    }
+
+    // Signing is per endpoint and optional; once a secret is set, unsigned or stale requests are refused.
+    if (endpoint.signing_ciphertext) {
+      const secret = decryptSecret({
+        ciphertext: endpoint.signing_ciphertext, nonce: endpoint.signing_nonce, tag: endpoint.signing_tag, key_version: endpoint.signing_key_version,
+      }, endpoint.user_id, endpoint.id, "webhook-signing");
+      if (secret.type !== "webhook_secret") return json({ error: "errors.server" }, 500);
+      const signature = verifySignature(secret.value, request.headers.get(SIGNATURE_HEADER), raw);
+      if (!signature.ok) return json({ error: signature.reason }, 401);
+    }
+
     let body: unknown;
     try {
-      body = parseWebhookBody(request.headers.get("content-type"), await readBody(request));
+      body = parseWebhookBody(request.headers.get("content-type"), raw);
     } catch (error) {
-      const key = error instanceof Error ? error.message : "errors.invalidInput";
-      return json({ error: key }, key === "errors.tooLarge" ? 413 : 400);
+      return json({ error: error instanceof Error ? error.message : "errors.invalidInput" }, 400);
     }
 
     let definition;

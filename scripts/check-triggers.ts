@@ -4,7 +4,7 @@ import { isValidCron, isValidTimezone, nextRunAt, nextRuns } from "../src/lib/wo
 import { executeWorkflow, type EngineDeps, type LogEntry } from "../src/lib/workflow/engine";
 import { dispatchSlot, type DispatchDeps, type DueSchedule } from "../src/lib/executions/dispatch";
 import { startExecution, type StartDeps, type StartInput } from "../src/lib/executions/start";
-import { TOKEN_PATTERN, buildTriggerData, generateToken, hashToken, parseWebhookBody, tokenHint, webhookUrl } from "../src/lib/webhook";
+import { TOKEN_PATTERN, buildTriggerData, generateSigningSecret, generateToken, hashToken, parseWebhookBody, signPayload, tokenHint, verifySignature, webhookUrl } from "../src/lib/webhook";
 import type { WorkflowNode } from "../src/lib/workflow/types";
 
 const node = (id: string, type: WorkflowNode["type"], data: Record<string, unknown> = {}): WorkflowNode => ({ id, type, position: { x: 0, y: 0 }, data });
@@ -210,7 +210,36 @@ function webhookChecks() {
   }, "auth headers and cookies never enter trigger data");
 }
 
+function signatureChecks() {
+  const secret = generateSigningSecret();
+  assert.match(secret, /^[A-Za-z0-9_-]{43}$/);
+  const body = '{"email":"a@b.c","n":1}';
+  const now = 1_800_000_000;
+  const header = signPayload(secret, body, now);
+  assert.match(header, /^t=1800000000,v1=[0-9a-f]{64}$/);
+  assert.deepEqual(verifySignature(secret, header, body, now), { ok: true });
+  assert.deepEqual(verifySignature(secret, header, body, now + 299), { ok: true }, "inside tolerance");
+  assert.deepEqual(verifySignature(secret, header.toUpperCase().replace("T=", "t=").replace("V1=", "v1="), body, now), { ok: true }, "hex case is irrelevant");
+  assert.deepEqual(verifySignature(secret, header, body, now + 301), { ok: false, reason: "errors.webhookSignatureStale" });
+  assert.deepEqual(verifySignature(secret, header, body, now - 301), { ok: false, reason: "errors.webhookSignatureStale" });
+  assert.deepEqual(verifySignature(secret, header, body + " ", now), { ok: false, reason: "errors.webhookSignatureInvalid" }, "tampered body");
+  assert.deepEqual(verifySignature(generateSigningSecret(), header, body, now), { ok: false, reason: "errors.webhookSignatureInvalid" }, "wrong secret");
+  assert.deepEqual(verifySignature(secret, null, body, now), { ok: false, reason: "errors.webhookSignatureMissing" });
+  for (const malformed of ["", "t=abc,v1=00", "v1=" + "0".repeat(64), "t=1800000000", "t=1800000000,v1=zz", "t=1800000000,v1=" + "0".repeat(63)]) {
+    assert.equal(verifySignature(secret, malformed, body, now).ok, false, `malformed accepted: ${malformed}`);
+  }
+  // Timestamp is part of the MAC: replaying the MAC under a fresh timestamp fails.
+  const [, mac] = header.split(",v1=");
+  assert.deepEqual(verifySignature(secret, `t=${now + 10},v1=${mac}`, body, now + 10), { ok: false, reason: "errors.webhookSignatureInvalid" });
+  // Rotation: a sender may send both old and new MACs; either valid one passes.
+  const next = generateSigningSecret();
+  const both = `${signPayload(secret, body, now)},v1=${signPayload(next, body, now).split("v1=")[1]}`;
+  assert.deepEqual(verifySignature(next, both, body, now), { ok: true });
+  assert.deepEqual(verifySignature(secret, both, body, now), { ok: true });
+}
+
 async function main() {
+  signatureChecks();
   validationChecks();
   cronChecks();
   await engineTriggerChecks();

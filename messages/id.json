@@ -77,7 +77,10 @@
     "scheduleInvalid": "Jadwal belum valid. Isi ekspresi cron dan zona waktu yang benar.",
     "rateLimited": "Terlalu banyak request ke webhook ini. Coba lagi sebentar.",
     "webhookInvalidJson": "Body webhook bukan JSON yang valid.",
-    "schedulePersistenceFailed": "Jadwal gagal disimpan."
+    "schedulePersistenceFailed": "Jadwal gagal disimpan.",
+    "webhookSignatureMissing": "Request tidak membawa header X-RunChunk-Signature.",
+    "webhookSignatureInvalid": "Tanda tangan webhook tidak cocok.",
+    "webhookSignatureStale": "Timestamp tanda tangan di luar toleransi 5 menit."
   },
   "dashboard": {
     "workspace": "RUANG KERJA",
@@ -204,7 +207,19 @@
     "scheduleNext": "Run berikutnya",
     "scheduleInvalid": "Cron atau zona waktu belum valid.",
     "scheduleHint": "Berjalan hanya saat workflow Aktif. Slot yang terlewat saat sistem mati tidak dikejar. Jika kuota habis, jadwal dinonaktifkan otomatis dan tercatat di riwayat.",
-    "scheduleData": "Data pemicu: '{{$json.scheduledAt}}', '{{$json.timezone}}', '{{$json.cron}}'."
+    "scheduleData": "Data pemicu: '{{$json.scheduledAt}}', '{{$json.timezone}}', '{{$json.cron}}'.",
+    "webhookSignature": "Tanda tangan HMAC (opsional)",
+    "webhookSignatureHint": "Bila diaktifkan, pengirim harus menandatangani body dengan HMAC-SHA256 memakai rahasia bersama. Request tanpa tanda tangan yang cocok ditolak dengan 401.",
+    "webhookSignatureNone": "Tanda tangan belum diaktifkan; semua request dengan token yang benar diterima.",
+    "webhookSignatureEnable": "Aktifkan tanda tangan",
+    "webhookSignatureRotate": "Rotasi rahasia",
+    "webhookSignatureDisable": "Nonaktifkan",
+    "webhookSignatureSecret": "Rahasia bersama",
+    "webhookSignatureOnce": "Simpan rahasia ini sekarang; tidak ditampilkan lagi. Header: X-RunChunk-Signature: t=detik-unix,v1=hex(HMAC-SHA256(rahasia, \"t.body\")).",
+    "webhookSignatureExample": "Contoh pemanggilan bertanda tangan",
+    "webhookSignatureSet": "Aktif sejak {date} · rahasia …{hint}",
+    "webhookSignatureConfirmRotate": "Rotasi rahasia? Pengirim harus memakai rahasia baru; yang lama langsung ditolak.",
+    "webhookSignatureConfirmDisable": "Nonaktifkan tanda tangan? Request tanpa tanda tangan akan diterima lagi."
   },
   "nodes": {
     "triggerManual": "Pemicu Manual",
