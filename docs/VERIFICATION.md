@@ -69,12 +69,44 @@ Keenam temuan direproduksi dulu dengan tes yang gagal, baru diperbaiki. Setiap p
 
 Temuan 1–4 dan 6 diuji di tingkat unit/engine. Temuan 5 diuji lewat browser dengan API tiruan. Endpoint credential dengan database sungguhan tetap belum diuji (butuh Supabase).
 
+## Minggu 5–6
+
+Perintah yang dijalankan (2026-09-28, lingkungan yang sama):
+
+| Perintah | Hasil |
+|---|---|
+| `npm run lint` · `npm run typecheck` · `npx next build` | lulus (lint 0 error, 2 warning lama) |
+| `npm test` | tiga suite lulus, termasuk `scripts/check-triggers.ts` (pemicu, cron/DST, jalur quota, dispatcher, webhook) |
+| `DB=… scripts/db-check.sh` (PostgreSQL 16 + stub) | `rls_cross_account: all checks passed` · `quota_webhook_schedule: all checks passed` |
+| Playwright ke `next dev` + API tiruan | dashboard (kuota, template, status terakhir), drawer webhook (buat URL, salin, rotasi), drawer jadwal (preset, pratinjau run), toggle Aktif, kereta di edge saat node running, penanda statis saat `prefers-reduced-motion`; 0 error halaman. Screenshot di `docs/verification/` |
+
+**Uji mutasi.** SQL (9 mutan, semua tertangkap): hapus guard `runs < quota` → `101st run allowed`; aktivasi tanpa cek batas → `4th activation should be refused`; rate limit tanpa cap → `11th hit allowed`; claim tanpa compare-and-swap → `second claim … succeeded (duplicate dispatch)`; `due_schedules` abaikan `is_active`; `token_hash` bisa dibaca client; `reserve_run` bisa dipanggil client; policy jadwal terbuka; kolom `is_active` bisa di-update client. TypeScript (10 mutan, semua tertangkap): dispatcher abaikan hasil claim / kejar slot terlewat / jalankan workflow nonaktif; `startExecution` tanpa refund saat dispatch gagal / abaikan quota; validator terima dua pemicu / cron rusak / 6 field; webhook teruskan semua header; engine hanya mulai dari pemicu manual.
+
+| Item | Status | Bukti |
+|---|---|---|
+| `trigger.webhook` di `/api/v1/webhooks/{token}`: token acak, hash di DB, rotasi/nonaktif | Terverifikasi (logika) | tes: token 43 char base64url, SHA-256, hint; route: format token salah → 404, GET → 405 (di-curl ke `next dev`). Nonaktif = workflow nonaktif/rotasi/hapus (lihat ARCHITECTURE §9) |
+| Webhook async: validasi → quota → 202 + executionId | Sebagian | jalur `startExecution` diuji dengan dependensi tiruan (quota ditolak → tidak ada insert; dispatch gagal → `dispatch_failed` + refund). Request nyata ke route dengan Supabase belum |
+| Rate limit webhook lintas instance (DB) | Terverifikasi (DB) | suite SQL: 10 lolos, ke-11 ditolak dengan `retry_after` 1–60; mutan tanpa cap tertangkap |
+| `trigger.schedule`: tabel jadwal + satu dispatcher cron; uji timezone + dedupe | Terverifikasi (logika + DB) | cron: Jakarta 09:00 → 02:00Z; Berlin 02:30 melintasi DST 2026-03-29 → 01:30Z lalu 00:30Z; dedupe: CAS di SQL (claim kedua gagal) dan simulasi 3 dispatcher paralel → tepat 1 execution. Dispatcher di Inngest sungguhan belum |
+| Quota atomik manual/webhook/schedule/aktivasi | Terverifikasi (DB) | suite SQL: 100 lolos, ke-101 ditolak, release mengembalikan; aktivasi ke-4 ditolak, Pro 5.000. Uji 100 request paralel lewat HTTP belum (butuh server + Supabase) |
+| Visual Jalur: warna L1–L6 di edge, kereta saat run, strip rute | Terverifikasi (UI) | Playwright: `circle.train` tampak saat node tujuan running, hilang dan diganti `.train-static` saat reduced-motion; screenshot `jalur-train-running.png` |
+| Dashboard: status terakhir, empty state, 2 template | Terverifikasi (UI) | template dibuat lewat klik dan definisinya diterima validator server; status terakhir dari view `workflow_last_executions` (suite SQL) |
+| Plan Pro simulasi, client tak bisa ubah plan | Terverifikasi (DB) | suite RLS lama (`B upgraded own plan` ditolak) + `my_usage` mengembalikan plan/quota; label "(simulasi)" di UI |
+| **Demo minggu 6**: curl → 202 → kanvas bereaksi realtime → riwayat | Sebagian | UI mengikuti execution terbaru tanpa klik (Playwright, lewat refetch); jalur webhook end-to-end dengan Supabase + Inngest belum dijalankan |
+
 ## Yang perlu dijalankan dengan layanan sungguhan
 
 1. Terapkan migrasi `0003_credentials.sql`, isi `CREDENTIALS_KEY_V1` di `.env.local`.
 2. `npm run dev -- --port 3008` + `npx inngest-cli dev -u http://localhost:3008/api/inngest`.
 3. Buat credential Bearer, lalu workflow: Manual → HTTP (ke endpoint yang memantulkan header, misalnya `https://httpbin.org/anything`, pakai credential) → Condition `{{$json.status}}` equals `200` → Output.
 4. Klik Jalankan: status node berubah tanpa refresh (Realtime), cabang salah redup/Dilewati, dan di tab Network maupun log tidak ada nilai token (yang ada `[REDACTED]`).
+
+Untuk minggu 5–6, tambahkan:
+
+5. Terapkan migrasi `0004_webhook_schedule_quota.sql`. Buat workflow dari template "Webhook lead masuk", klik node webhook → Buat URL → salin, lalu klik Aktifkan.
+6. `curl -X POST '<URL>' -H 'content-type: application/json' -d '{"email":"demo@example.com"}'` → respons `202 {"executionId": …}`; kanvas menampilkan kereta lalu status per node tanpa refresh; riwayat mencatat sumber "Webhook". Ulangi 11× dalam satu menit → yang ke-11 `429` dengan `Retry-After`.
+7. Buat workflow dengan Jadwal Cron `*/2 * * * *`, aktifkan, tunggu ≤ 2 menit: satu execution bersumber "Jadwal" muncul, tidak ganda; cek `workflow_schedules.next_run_at` maju.
+8. Habiskan kuota (atau set `plan_limits` sementara) lalu klik Jalankan → banner `errors.quotaExceeded`; aktifkan workflow ke-4 → banner batas aktif.
 
 ## Catatan temuan selama verifikasi
 

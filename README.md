@@ -37,6 +37,7 @@ supabase db reset
 # supabase/migrations/0001_init.sql
 # supabase/migrations/0002_service_role_grants.sql
 # supabase/migrations/0003_credentials.sql
+# supabase/migrations/0004_webhook_schedule_quota.sql
 ```
 
 ### RLS Isolation Check / *Uji Isolasi RLS*:
@@ -57,15 +58,28 @@ DB="postgresql://postgres@localhost:5432/runchunk_test"
 psql "$DB" -v ON_ERROR_STOP=1 -f supabase/tests/vanilla_postgres_stub.sql
 for f in supabase/migrations/*.sql; do psql "$DB" -v ON_ERROR_STOP=1 -f "$f"; done
 psql "$DB" -v ON_ERROR_STOP=1 -f supabase/tests/rls_cross_account.sql
+psql "$DB" -v ON_ERROR_STOP=1 -f supabase/tests/quota_webhook_schedule.sql
 ```
+
+Or run everything (stub, migrations, both suites) with `DB="$DB" scripts/db-check.sh`.
+*Atau jalankan semuanya (stub, migrasi, kedua suite) dengan `DB="$DB" scripts/db-check.sh`.*
 
 ### Automated checks / *Pemeriksaan otomatis*
 
 ```bash
 npm run lint
 npm run typecheck   # next typegen + tsc
-npm test            # validator, SSRF, expression, engine (branching, delay, retry, replay), Vault, redaction
+npm test            # validator, SSRF, expression, engine (branching, delay, retry, replay), Vault, redaction, triggers, schedule, quota path
 ```
+
+### Webhook, schedule, and quota / *Webhook, jadwal, dan kuota*
+
+- Webhook: `POST {APP_URL}/api/v1/webhooks/{token}` (create the URL from the webhook node; the token is shown once). Responds `202 {"executionId"}`; the result is in the authenticated history. Only workflows switched to **Active** accept requests. Rate limit per URL: Free 10/min, Pro 60/min (`429` + `Retry-After`).
+  *Webhook: buat URL dari node webhook (token ditampilkan sekali). Respons `202 {"executionId"}`; hasil dibaca di riwayat. Hanya workflow **Aktif** yang menerima request.*
+- Schedule: 5-field cron + IANA timezone on the schedule node; one Inngest cron dispatcher (`schedule-dispatcher`, every minute) fires active workflows. Missed slots are not caught up; when the monthly quota runs out the schedule is deactivated and a failed execution records why.
+  *Jadwal: cron 5 field + zona waktu di node jadwal; satu dispatcher Inngest tiap menit. Slot terlewat tidak dikejar; saat kuota habis jadwal dinonaktifkan dan tercatat di riwayat.*
+- Quota (PRD §9): Free 100 runs/month and 3 active workflows; Pro 5,000 runs and 10 active. Reserved atomically in Postgres for manual, webhook and schedule runs. Pro is a simulation set by an admin (`update profiles set plan = 'pro' where id = …`); clients cannot change it.
+  *Kuota: Free 100 run/bulan, 3 workflow aktif; Pro 5.000 run, 10 aktif. Pro adalah simulasi yang ditetapkan admin di DB.*
 
 ---
 
@@ -94,5 +108,7 @@ npx inngest-cli dev -u http://localhost:3008/api/inngest
   *(Smoke test browser dengan akun terisolasi lulus: Manual → HTTP (`https://example.com`) → Keluaran berhasil; riwayat dan tiga log node tersimpan. `supabase/migrations/0002_service_role_grants.sql` memberi hak tulis `service_role` yang dibutuhkan engine. Uji SQL RLS lintas akun (`supabase/tests/rls_cross_account.sql`) masih butuh koneksi Postgres langsung.)*
 - **Weeks 3–4 (branching, Vault, redaction, Realtime, retry)**: covered by `npm test` (engine run through a fake Inngest step runner with replay), the RLS suite on PostgreSQL 16, and a Playwright render of the editor against mocked API responses. Not yet run against live Supabase Realtime/Auth and Inngest Dev Server. See `docs/VERIFICATION.md`.
   *(Minggu 3–4 diverifikasi lewat `npm test`, suite RLS di PostgreSQL 16, dan render editor dengan Playwright memakai API tiruan. Belum diuji dengan Supabase Realtime/Auth dan Inngest Dev Server sungguhan. Lihat `docs/VERIFICATION.md`.)*
+- **Weeks 5–6 (webhook, schedule, quota, Jalur visuals)**: covered by `npm test`, `scripts/db-check.sh` (quota, rate limit, claim/dedupe, RLS on the new tables) and a Playwright render. Not yet run against live Supabase + Inngest: real webhook calls, the cron dispatcher, Realtime-driven canvas updates. See `docs/VERIFICATION.md`.
+  *(Minggu 5–6 diverifikasi lewat `npm test`, `scripts/db-check.sh`, dan render Playwright. Belum dijalankan dengan Supabase + Inngest sungguhan.)*
 - **Inngest Cloud Dispatch**: Without live Inngest keys, workflow executions correctly fail-closed by marking `status: 'dispatch_failed'` with a HTTP `502` status code.
   *(Tanpa kunci Inngest aktif, eksekusi alur kerja secara aman masuk ke status `dispatch_failed` dengan kode status HTTP `502`.)*
