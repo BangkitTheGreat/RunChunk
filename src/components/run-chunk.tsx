@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, DragEvent, FormEvent, ReactNode } from 'react';
+import type { DragEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   addEdge,
@@ -9,310 +9,29 @@ import {
   applyNodeChanges,
   Background,
   Controls,
-  Handle,
-  Position,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
 } from '@xyflow/react';
-import type { Connection, EdgeChange, Node, NodeChange, NodeProps } from '@xyflow/react';
-import {
-  Activity,
-  AlertTriangle,
-  ArrowLeft,
-  CalendarClock,
-  Check,
-  Code2,
-  GitBranch,
-  Globe2,
-  History,
-  KeyRound,
-  LoaderCircle,
-  LogOut,
-  Moon,
-  Play,
-  Plus,
-  Power,
-  Save,
-  Sun,
-  Timer,
-  Trash2,
-  Variable,
-  Webhook,
-  Workflow,
-  X,
-} from 'lucide-react';
-import {
-  CONDITION_OPERATORS,
-  CREDENTIAL_TYPES,
-  DELAY_UNITS,
-  HTTP_METHODS,
-  MAX_RETRIES,
-  UNARY_OPERATORS,
-  UNSAFE_RETRY_METHODS,
-  VARIABLE_KEY,
-  FORBIDDEN_KEYS,
-  isTriggerType,
-} from '@/lib/workflow/types';
-import type { CredentialType, NodeType, TriggerSource, WorkflowDefinition } from '@/lib/workflow/types';
-import { STARTER_TEMPLATES } from '@/lib/workflow/templates';
-import { createClient as createBrowserSupabase } from '@/lib/supabase/browser';
-import { JalurEdge, type JalurEdgeType } from './jalur-edge';
-import { ScheduleConfig, WebhookConfig } from './trigger-config';
+import type { Connection, EdgeChange, Node, NodeChange } from '@xyflow/react';
+import { ArrowLeft, Check, KeyRound, LoaderCircle, LogOut, Moon, Play, Power, Save, Sun, Workflow, X } from 'lucide-react';
+import { UNARY_OPERATORS, isTriggerType } from '@/lib/workflow/types';
+import type { NodeType, WorkflowDefinition } from '@/lib/workflow/types';
+import type { StarterTemplate } from '@/lib/workflow/templates';
+import type { JalurEdgeType } from './jalur-edge';
+import { CredentialsView } from './credentials-view';
+import { DashboardView } from './dashboard';
+import { ExecutionDock } from './execution-dock';
+import { useTranslated } from './format';
+import type { Credential, Detail, DockTab, Execution, Usage, View, WorkflowRow } from './model';
+import { NodeDrawer } from './node-drawer';
 import { request } from './request';
+import { DEFAULT_DATA, NODE_CATEGORY, NODE_LABELS, NodeIcon, SUPPORTED_KINDS, edgeTypes, nodeTypes } from './station';
+import type { StationData } from './station';
+import { useRealtimeRefetch } from './use-realtime';
 
-interface LastExecution {
-  execution_id: string;
-  status: string;
-  trigger_source: TriggerSource;
-  created_at: string;
-  finished_at: string | null;
-}
-
-interface WorkflowRow {
-  id: string;
-  name: string;
-  version: number;
-  definition: WorkflowDefinition;
-  is_active: boolean;
-  route_color: number;
-  updated_at: string;
-  last_execution?: LastExecution | null;
-}
-
-interface Usage {
-  plan: string;
-  runs: number;
-  quota: number;
-  activeWorkflows: number;
-  activeLimit: number;
-  webhookPerMinute: number;
-}
-
-interface Execution {
-  id: string;
-  status: string;
-  trigger_source?: TriggerSource;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  output?: unknown;
-  error?: string | null;
-}
-
-interface ExecutionLog {
-  node_id: string;
-  status: string;
-  summary: string;
-  duration_ms: number;
-  created_at: string;
-  output?: { preview?: string; truncated?: boolean; attempts?: number } | null;
-}
-
-interface Credential {
-  id: string;
-  name: string;
-  type: CredentialType;
-  header_name: string | null;
-  key_version: number;
-  created_at: string;
-}
-
-interface StationData extends Record<string, unknown> {
-  kind: NodeType;
-  title: string;
-  subtitle: string;
-  status?: string;
-  statusKey?: string;
-  trueLabel: string;
-  falseLabel: string;
-}
-
-type Detail = { execution: Execution; logs: ExecutionLog[] };
-
-const SUPPORTED_KINDS: readonly NodeType[] = [
-  'trigger.manual',
-  'trigger.webhook',
-  'trigger.schedule',
-  'action.http',
-  'action.set_variable',
-  'control.condition',
-  'control.delay',
-  'output.response',
-];
-
-const NODE_LABELS: Record<NodeType, string> = {
-  'trigger.manual': 'nodes.triggerManual',
-  'trigger.webhook': 'nodes.triggerWebhook',
-  'trigger.schedule': 'nodes.triggerSchedule',
-  'action.http': 'nodes.actionHttp',
-  'action.set_variable': 'nodes.actionSetVariable',
-  'control.condition': 'nodes.controlCondition',
-  'control.delay': 'nodes.controlDelay',
-  'output.response': 'nodes.outputResponse',
-};
-
-const NODE_CATEGORY: Record<NodeType, 'trigger' | 'action' | 'control' | 'output'> = {
-  'trigger.manual': 'trigger',
-  'trigger.webhook': 'trigger',
-  'trigger.schedule': 'trigger',
-  'action.http': 'action',
-  'action.set_variable': 'action',
-  'control.condition': 'control',
-  'control.delay': 'control',
-  'output.response': 'output',
-};
-
-const DEFAULT_DATA: Record<NodeType, () => Record<string, unknown>> = {
-  'trigger.manual': () => ({}),
-  'trigger.webhook': () => ({}),
-  'trigger.schedule': () => ({ cron: '0 9 * * *', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' }),
-  'action.http': () => ({ url: '', method: 'GET', headers: {} }),
-  'action.set_variable': () => ({ values: {} }),
-  'control.condition': () => ({ left: '{{$json.status}}', operator: 'equals', right: '200' }),
-  'control.delay': () => ({ amount: 5, unit: 's' }),
-  'output.response': () => ({ value: '{{$json}}' }),
-};
-
-function NodeIcon({ kind, size }: { kind: NodeType; size: number }) {
-  switch (kind) {
-    case 'trigger.manual':
-      return <Play size={size} />;
-    case 'trigger.webhook':
-      return <Webhook size={size} />;
-    case 'trigger.schedule':
-      return <CalendarClock size={size} />;
-    case 'action.http':
-      return <Globe2 size={size} />;
-    case 'action.set_variable':
-      return <Variable size={size} />;
-    case 'control.condition':
-      return <GitBranch size={size} />;
-    case 'control.delay':
-      return <Timer size={size} />;
-    default:
-      return <Code2 size={size} />;
-  }
-}
-
-function Station({ data, selected }: NodeProps<Node<StationData>>) {
-  const stationStyle = { '--station-color': `var(--color-cat-${NODE_CATEGORY[data.kind]})` } as CSSProperties;
-  const branching = data.kind === 'control.condition';
-  return (
-    <div
-      className={`station ${selected ? 'station-selected' : ''} ${data.statusKey ? `station-${data.statusKey}` : ''}`}
-      style={stationStyle}
-    >
-      {!isTriggerType(data.kind) && <Handle type="target" position={Position.Left} />}
-      <span className="station-icon">
-        <NodeIcon kind={data.kind} size={16} />
-      </span>
-      <div className="station-copy">
-        <strong>{data.title}</strong>
-        <span>{data.subtitle}</span>
-        {data.status && <span>{data.status}</span>}
-      </div>
-      {data.statusKey && <span className={`station-status status-${data.statusKey}`} />}
-      {branching ? (
-        <>
-          <Handle type="source" id="true" position={Position.Right} style={{ top: '30%' }} />
-          <span className="port-label port-true">{data.trueLabel}</span>
-          <Handle type="source" id="false" position={Position.Right} style={{ top: '70%' }} />
-          <span className="port-label port-false">{data.falseLabel}</span>
-        </>
-      ) : (
-        data.kind !== 'output.response' && <Handle type="source" position={Position.Right} />
-      )}
-    </div>
-  );
-}
-
-const nodeTypes = { station: Station };
-const edgeTypes = { jalur: JalurEdge };
-
-const SOURCE_ICON: Record<TriggerSource, typeof Play> = { manual: Play, webhook: Webhook, schedule: CalendarClock };
-
-/** Collapses bursts of Realtime events into at most one in-flight refetch plus one follow-up. */
-function coalesce(fn: () => Promise<void>) {
-  let running = false;
-  let again = false;
-  const go = async () => {
-    if (running) {
-      again = true;
-      return;
-    }
-    running = true;
-    try {
-      do {
-        again = false;
-        await fn();
-      } while (again);
-    } finally {
-      running = false;
-    }
-  };
-  return go;
-}
-
-type Subscription = { table: 'executions' | 'execution_logs'; filter: string };
-
-/**
- * Supabase Realtime (Postgres Changes, owner-filtered by RLS) as a change signal only: every event and every
- * (re)subscribe triggers a refetch through the API, which stays the source of truth. No polling.
- */
-function useRealtimeRefetch(key: string | undefined, subscriptions: Subscription[], refetch: () => Promise<void>) {
-  const [live, setLive] = useState<boolean | null>(null);
-  const refetchRef = useRef(refetch);
-  useEffect(() => {
-    refetchRef.current = refetch;
-  }, [refetch]);
-  const subsKey = JSON.stringify(subscriptions);
-
-  useEffect(() => {
-    if (!key) return;
-    const subs = JSON.parse(subsKey) as Subscription[];
-    const run = coalesce(() => refetchRef.current());
-    const onWake = () => void run();
-    window.addEventListener('focus', onWake);
-    window.addEventListener('online', onWake);
-    // Initial load never waits for Realtime; an unreachable socket must not leave the view empty.
-    void run();
-    let supabase: ReturnType<typeof createBrowserSupabase>;
-    try {
-      supabase = createBrowserSupabase();
-    } catch {
-      return () => {
-        window.removeEventListener('focus', onWake);
-        window.removeEventListener('online', onWake);
-      };
-    }
-    let channel = supabase.channel(`runchunk:${key}:${crypto.randomUUID()}`);
-    for (const sub of subs) {
-      channel = channel.on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: sub.table, filter: sub.filter },
-        () => void run()
-      );
-    }
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        setLive(true);
-        // Covers events missed before the first subscribe and during any disconnect.
-        void run();
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        setLive(false);
-      }
-    });
-    return () => {
-      window.removeEventListener('focus', onWake);
-      window.removeEventListener('online', onWake);
-      void supabase.removeChannel(channel);
-      setLive(null);
-    };
-  }, [key, subsKey]);
-
-  return live;
-}
+// Application shell: workspace state, API calls, the canvas, and the frame around the views.
+// Views that only render state live in their own files (dashboard, node-drawer, execution-dock, ...).
 
 export default function RunChunk() {
   return (
@@ -325,9 +44,10 @@ export default function RunChunk() {
 function Workspace() {
   const t = useTranslations();
   const locale = useLocale();
+  const translated = useTranslated();
   const { screenToFlowPosition } = useReactFlow();
 
-  const [view, setView] = useState<'workflows' | 'credentials'>('workflows');
+  const [view, setView] = useState<View>('workflows');
   const [rows, setRows] = useState<WorkflowRow[]>([]);
   const [active, setActive] = useState<WorkflowRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -338,7 +58,7 @@ function Workspace() {
   const [selected, setSelected] = useState<string | null>(null);
   const [history, setHistory] = useState<Execution[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
-  const [tab, setTab] = useState<'history' | 'logs'>('history');
+  const [tab, setTab] = useState<DockTab>('history');
   const [theme, setTheme] = useState(() =>
     typeof document === 'undefined' ? 'dark' : document.documentElement.dataset.theme ?? 'dark'
   );
@@ -358,12 +78,6 @@ function Workspace() {
   const fail = useCallback((e: unknown) => {
     setError(e instanceof Error ? e.message : 'errors.server');
   }, []);
-
-  const translated = (key: string, values?: Record<string, string | number>): string => {
-    return t.has(key as unknown as Parameters<typeof t>[0])
-      ? t(key as unknown as Parameters<typeof t>[0], values)
-      : key;
-  };
 
   const loadCredentials = useCallback(async () => {
     const data = await request<{ credentials: Credential[] }>('/api/credentials');
@@ -512,7 +226,7 @@ function Workspace() {
     return () => window.removeEventListener('beforeunload', listener);
   }, [dirty]);
 
-  const open = (row: WorkflowRow | null, nextView: 'workflows' | 'credentials' = 'workflows') => {
+  const open = (row: WorkflowRow | null, nextView: View = 'workflows') => {
     if (dirty && !confirm(t('editor.discard'))) return;
     followLatestRef.current = true;
     if (!row) {
@@ -529,7 +243,7 @@ function Workspace() {
     setHistory([]);
   };
 
-  const create = async (template?: (typeof STARTER_TEMPLATES)[number]) => {
+  const create = async (template?: StarterTemplate) => {
     setBusy(true);
     setError('');
     setDetail(null);
@@ -625,6 +339,18 @@ function Workspace() {
     }
   };
 
+  const pickExecution = async (execution: Execution) => {
+    // Picking an older run pins it; the newest keeps following.
+    followLatestRef.current = history[0]?.id === execution.id;
+    try {
+      const data = await request<Detail>(`/api/executions/${execution.id}`);
+      setDetail(data);
+      setTab('logs');
+    } catch (e) {
+      fail(e);
+    }
+  };
+
   const setActivation = async (activeFlag: boolean) => {
     if (!active) return;
     if (dirty && !(await save())) return;
@@ -649,8 +375,6 @@ function Workspace() {
     setActive((a) => (a ? { ...a, route_color: color } : a));
     setDirty(true);
   };
-
-  const stamp = (value: string | null) => (value ? new Date(value).toLocaleString(locale) : '—');
 
   const nodeTitle = (id: string) => {
     const found = active?.definition.nodes.find((n) => n.id === id);
@@ -773,8 +497,6 @@ function Workspace() {
     );
   }
 
-  const method = String(currentNode?.data.method ?? 'GET');
-  const retries = Number(currentNode?.data.retries ?? 0);
   const triggerType = active?.definition.nodes.find((n) => isTriggerType(n.type))?.type;
   const needsActivation = triggerType === 'trigger.webhook' || triggerType === 'trigger.schedule';
   const planLabel = usage ? (usage.plan === 'pro' ? t('dashboard.planPro') : t('dashboard.planFree')) : '';
@@ -878,107 +600,17 @@ function Workspace() {
         )}
 
         {view === 'credentials' ? (
-          <CredentialsView credentials={credentials} reload={loadCredentials} fail={fail} stamp={stamp} />
+          <CredentialsView credentials={credentials} reload={loadCredentials} fail={fail} />
         ) : !active ? (
-          <div className="workflow-home">
-            <div className="page-heading">
-              <div>
-                <p className="eyebrow">{t('dashboard.studio')}</p>
-                <h1>{t('dashboard.title')}</h1>
-                <p>{t('dashboard.description')}</p>
-                {usage && (
-                  <p className="usage-line" title={t('dashboard.planHint')}>
-                    <span className={`plan-badge plan-${usage.plan}`}>{planLabel}</span>
-                    <span>{t('dashboard.usage', { runs: usage.runs, quota: usage.quota })}</span>
-                    <span>·</span>
-                    <span>{t('dashboard.activeCount', { count: usage.activeWorkflows, limit: usage.activeLimit })}</span>
-                  </p>
-                )}
-              </div>
-              <form
-                className="create-row"
-                onSubmit={(e: FormEvent) => {
-                  e.preventDefault();
-                  void create();
-                }}
-              >
-                <input
-                  aria-label={t('dashboard.name')}
-                  placeholder={t('dashboard.name')}
-                  value={name}
-                  maxLength={120}
-                  onChange={(e) => setName(e.target.value)}
-                />
-                <button className="primary-button" disabled={busy}>
-                  <Plus size={16} />
-                  {t('dashboard.create')}
-                </button>
-              </form>
-            </div>
-            <section className="templates">
-              <div>
-                <h2>{t('dashboard.templatesTitle')}</h2>
-                <span>{t('dashboard.templatesHint')}</span>
-              </div>
-              <div className="template-grid">
-                {STARTER_TEMPLATES.map((template) => (
-                  <button key={template.key} className="template-card" disabled={busy} onClick={() => void create(template)}>
-                    <span className="route-color" style={{ background: `var(--color-jalur-l${template.routeColor})` }} />
-                    <strong>{t(`dashboard.templates.${template.key}.name`)}</strong>
-                    <small>{t(`dashboard.templates.${template.key}.description`)}</small>
-                    <span className="template-cta">{t('dashboard.useTemplate')}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-            {rows.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-route" aria-hidden="true">
-                  <span className="empty-dot" />
-                  <i />
-                  <span className="empty-dot" />
-                  <i />
-                  <span className="empty-dot" />
-                </div>
-                <h2>{t('dashboard.emptyTitle')}</h2>
-                <p>{t('dashboard.emptyBody')}</p>
-                <button className="primary-button" onClick={() => void create()} disabled={busy}>
-                  <Plus size={16} />
-                  {t('dashboard.create')}
-                </button>
-              </div>
-            ) : (
-              <div className="workflow-list">
-                {rows.map((row) => {
-                  const trigger = row.definition.nodes.find((n) => isTriggerType(n.type))?.type ?? 'trigger.manual';
-                  const last = row.last_execution;
-                  const LastIcon = last ? SOURCE_ICON[last.trigger_source] : null;
-                  return (
-                    <button className="workflow-row" key={row.id} onClick={() => open(row)}>
-                      <span className="route-color" style={{ background: `var(--color-jalur-l${row.route_color ?? 1})` }} />
-                      <NodeIcon kind={trigger} size={18} />
-                      <span className="workflow-name">
-                        {row.name}
-                        <small>
-                          {t(NODE_LABELS[trigger])}
-                          {trigger !== 'trigger.manual' ? ` · ${row.is_active ? t('dashboard.activeBadge') : t('dashboard.inactiveBadge')}` : ''}
-                        </small>
-                      </span>
-                      {last ? (
-                        <span className={`status-pill status-${last.status}`}>
-                          {LastIcon && <LastIcon size={11} />}
-                          {translated('status.' + last.status)}
-                        </span>
-                      ) : (
-                        <span className="status-pill">{t('dashboard.neverRun')}</span>
-                      )}
-                      <time className="workflow-date">{stamp(last?.created_at ?? row.updated_at)}</time>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <DashboardView
+            rows={rows}
+            usage={usage}
+            name={name}
+            onNameChange={setName}
+            busy={busy}
+            onCreate={(template) => void create(template)}
+            onOpen={(row) => open(row)}
+          />
         ) : (
           <>
             <div className="editor-toolbar">
@@ -1100,651 +732,35 @@ function Workspace() {
               </div>
 
               {currentNode && (
-                <aside className="config-panel">
-                  <div className="config-heading">
-                    <h2>{t('editor.drawerTitle')}</h2>
-                    <button className="icon-button" aria-label={t('common.close')} onClick={() => setSelected(null)}>
-                      <X size={16} />
-                    </button>
-                  </div>
-
-                  <h2>{t(NODE_LABELS[currentNode.type])}</h2>
-
-                  {currentNode.type === 'action.http' && (
-                    <>
-                      <label className="field-label">
-                        {t('editor.method')}
-                        <select value={method} onChange={(e) => update({ method: e.target.value })}>
-                          {HTTP_METHODS.map((m) => (
-                            <option key={m}>{m}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="field-label">
-                        {t('editor.url')}
-                        <input
-                          value={String(currentNode.data.url ?? '')}
-                          onChange={(e) => update({ url: e.target.value })}
-                          placeholder="https://api.example.com/data"
-                        />
-                      </label>
-                      <label className="field-label">
-                        {t('editor.credential')}
-                        <select
-                          value={String(currentNode.data.credentialId ?? '')}
-                          onChange={(e) => update({ credentialId: e.target.value || undefined })}
-                        >
-                          <option value="">{t('editor.noCredential')}</option>
-                          {credentials.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name} · {t(`credentials.type_${c.type}`)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <p className="field-help">
-                        {t('editor.credentialHint')}{' '}
-                        <button className="link-button" onClick={() => open(null, 'credentials')}>
-                          {t('editor.manageCredentials')}
-                        </button>
-                      </p>
-                      <label className="field-label">
-                        {t('editor.headers')}
-                        <textarea
-                          className="code-input"
-                          rows={4}
-                          value={headers}
-                          onChange={(e) => {
-                            setHeaders(e.target.value);
-                            try {
-                              const value: unknown = JSON.parse(e.target.value);
-                              if (
-                                !value ||
-                                typeof value !== 'object' ||
-                                Array.isArray(value) ||
-                                Object.values(value).some((v) => typeof v !== 'string')
-                              ) {
-                                throw new Error();
-                              }
-                              update({ headers: value as Record<string, string> });
-                              setError('');
-                            } catch {
-                              setError('errors.invalidHeaders');
-                            }
-                          }}
-                        />
-                      </label>
-                      <p className="field-help">{t('editor.headersSecretHint')}</p>
-                      <label className="field-label">
-                        {t('editor.body')}
-                        <textarea
-                          className="code-input"
-                          rows={5}
-                          value={
-                            typeof currentNode.data.body === 'string'
-                              ? currentNode.data.body
-                              : currentNode.data.body === undefined
-                                ? ''
-                                : JSON.stringify(currentNode.data.body)
-                          }
-                          onChange={(e) => update({ body: e.target.value })}
-                        />
-                      </label>
-                      <label className="field-label">
-                        {t('editor.retries')}
-                        <select
-                          value={retries}
-                          onChange={(e) => update({ retries: Number(e.target.value) || undefined })}
-                        >
-                          {Array.from({ length: MAX_RETRIES + 1 }, (_, n) => (
-                            <option key={n} value={n}>
-                              {n === 0 ? t('editor.retryNone') : t('editor.retryCount', { count: n })}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <p className="field-help">{t('editor.retriesHint')}</p>
-                      {retries > 0 && UNSAFE_RETRY_METHODS.includes(method) && (
-                        <p className="field-warning" role="alert">
-                          <AlertTriangle size={14} />
-                          {t('editor.retryWarning', { method })}
-                        </p>
-                      )}
-                      <p className="field-help">{t('editor.httpWarning')}</p>
-                    </>
-                  )}
-
-                  {currentNode.type === 'control.condition' && (
-                    <>
-                      <label className="field-label">
-                        {t('editor.left')}
-                        <input
-                          className="code-input"
-                          value={String(currentNode.data.left ?? '')}
-                          onChange={(e) => update({ left: e.target.value })}
-                          placeholder="{{$json.status}}"
-                        />
-                      </label>
-                      <label className="field-label">
-                        {t('editor.operator')}
-                        <select
-                          value={String(currentNode.data.operator ?? 'equals')}
-                          onChange={(e) => update({ operator: e.target.value })}
-                        >
-                          {CONDITION_OPERATORS.map((op) => (
-                            <option key={op} value={op}>
-                              {t(`operators.${op}`)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {!UNARY_OPERATORS.includes(
-                        String(currentNode.data.operator ?? 'equals') as (typeof UNARY_OPERATORS)[number]
-                      ) && (
-                        <label className="field-label">
-                          {t('editor.right')}
-                          <input
-                            className="code-input"
-                            value={String(currentNode.data.right ?? '')}
-                            onChange={(e) => update({ right: e.target.value })}
-                            placeholder="404"
-                          />
-                        </label>
-                      )}
-                      <p className="field-help">{t('editor.conditionHint')}</p>
-                    </>
-                  )}
-
-                  {currentNode.type === 'control.delay' && (
-                    <>
-                      <div className="field-row">
-                        <label className="field-label">
-                          {t('editor.amount')}
-                          <input
-                            type="number"
-                            min={1}
-                            step={1}
-                            value={String(currentNode.data.amount ?? '')}
-                            onChange={(e) => update({ amount: e.target.value === '' ? '' : Number(e.target.value) })}
-                          />
-                        </label>
-                        <label className="field-label">
-                          {t('editor.unit')}
-                          <select
-                            value={String(currentNode.data.unit ?? 's')}
-                            onChange={(e) => update({ unit: e.target.value })}
-                          >
-                            {Object.keys(DELAY_UNITS).map((unit) => (
-                              <option key={unit} value={unit}>
-                                {t(`units.${unit}`)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                      <p className="field-help">{t('editor.delayHint')}</p>
-                    </>
-                  )}
-
-                  {currentNode.type === 'action.set_variable' && (
-                    <VariablesEditor
-                      key={currentNode.id}
-                      values={(currentNode.data.values as Record<string, unknown>) ?? {}}
-                      onChange={(values) => update({ values })}
-                    />
-                  )}
-
-                  {currentNode.type === 'output.response' && (
-                    <>
-                      <label className="field-label">
-                        {t('editor.expression')}
-                        <textarea
-                          className="code-input"
-                          rows={5}
-                          value={String(currentNode.data.value ?? '{{$json}}')}
-                          onChange={(e) => update({ value: e.target.value })}
-                        />
-                      </label>
-                      <p className="field-help">
-                        {t('editor.expressionHint')} <code>{'{{$json}}'}</code>
-                      </p>
-                    </>
-                  )}
-
-                  {currentNode.type === 'trigger.manual' && <p className="field-help">{t('editor.manualHint')}</p>}
-
-                  {currentNode.type === 'trigger.webhook' && (
-                    <WebhookConfig
-                      key={active.id}
-                      workflowId={active.id}
-                      isActive={active.is_active}
-                      webhookPerMinute={usage?.webhookPerMinute ?? null}
-                      stamp={stamp}
-                      fail={fail}
-                    />
-                  )}
-
-                  {currentNode.type === 'trigger.schedule' && (
-                    <ScheduleConfig
-                      cron={String(currentNode.data.cron ?? '')}
-                      timezone={String(currentNode.data.timezone ?? '')}
-                      onChange={update}
-                    />
-                  )}
-
-                  <div className="config-bottom">
-                    <button className="danger-button" onClick={remove}>
-                      <Trash2 size={15} />
-                      {t('common.delete')}
-                    </button>
-                  </div>
-                </aside>
+                <NodeDrawer
+                  node={currentNode}
+                  workflow={active}
+                  credentials={credentials}
+                  usage={usage}
+                  headers={headers}
+                  onHeadersChange={setHeaders}
+                  onUpdate={update}
+                  onRemove={remove}
+                  onClose={() => setSelected(null)}
+                  onManageCredentials={() => open(null, 'credentials')}
+                  onError={setError}
+                  fail={fail}
+                />
               )}
             </div>
 
-            <footer className="execution-dock">
-              <div className="dock-tabs">
-                <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
-                  <History size={15} />
-                  {t('common.history')}
-                  <span className="tab-count">{history.length}</span>
-                </button>
-                <button className={tab === 'logs' ? 'active' : ''} onClick={() => setTab('logs')}>
-                  <Activity size={15} />
-                  {t('common.logs')}
-                </button>
-                {live !== null && (
-                  <span className={`live-indicator ${live ? 'is-live' : ''}`}>
-                    <span className="live-dot" />
-                    {live ? t('execution.live') : t('execution.offline')}
-                  </span>
-                )}
-              </div>
-
-              <div className="dock-content">
-                {tab === 'history' ? (
-                  history.length === 0 ? (
-                    <p className="dock-empty">{t('execution.empty')}</p>
-                  ) : (
-                    history.map((ex) => (
-                      <button
-                        className="execution-item"
-                        key={ex.id}
-                        onClick={async () => {
-                          // Picking an older run pins it; the newest keeps following.
-                          followLatestRef.current = history[0]?.id === ex.id;
-                          try {
-                            const data = await request<Detail>(`/api/executions/${ex.id}`);
-                            setDetail(data);
-                            setTab('logs');
-                          } catch (e) {
-                            fail(e);
-                          }
-                        }}
-                      >
-                        <span className={`status-pill status-${ex.status}`}>{translated('status.' + ex.status)}</span>
-                        <span className="execution-source">{translated('execution.source.' + (ex.trigger_source ?? 'manual'))}</span>
-                        <time>{stamp(ex.started_at ?? ex.created_at)}</time>
-                        <span className="execution-id">{ex.id.slice(0, 8)}</span>
-                      </button>
-                    ))
-                  )
-                ) : !detail ? (
-                  <p className="dock-empty">{t('execution.select')}</p>
-                ) : (
-                  <>
-                    <div className="execution-item">
-                      <span className={`status-pill status-${detail.execution.status}`}>
-                        {translated('status.' + detail.execution.status)}
-                      </span>
-                      <span className="execution-source">{translated('execution.source.' + (detail.execution.trigger_source ?? 'manual'))}</span>
-                      <time>{stamp(detail.execution.started_at ?? detail.execution.created_at)}</time>
-                      <span>
-                        {t('execution.finished')}: {stamp(detail.execution.finished_at)}
-                      </span>
-                    </div>
-
-                    {detail.execution.error && <p role="alert">{translated(detail.execution.error)}</p>}
-
-                    {detail.logs.map((log, i) => (
-                      <LogRow key={`${log.node_id}-${i}`} log={log} title={nodeTitle(log.node_id)} stamp={stamp}>
-                        {translated('status.' + log.status)} · {translated(log.summary)}
-                        {log.output?.attempts && log.output.attempts > 1
-                          ? ` · ${t('execution.attempts', { count: log.output.attempts })}`
-                          : ''}
-                      </LogRow>
-                    ))}
-
-                    {detail.execution.output !== undefined && detail.execution.output !== null && (
-                      <>
-                        <h2>{t('execution.result')}</h2>
-                        <pre className="result-output">{JSON.stringify(detail.execution.output, null, 2)}</pre>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            </footer>
+            <ExecutionDock
+              history={history}
+              detail={detail}
+              tab={tab}
+              onTabChange={setTab}
+              live={live}
+              nodeTitle={nodeTitle}
+              onPick={(execution) => void pickExecution(execution)}
+            />
           </>
         )}
       </section>
     </main>
-  );
-}
-
-function LogRow({
-  log,
-  title,
-  stamp,
-  children,
-}: {
-  log: ExecutionLog;
-  title: string;
-  stamp: (value: string | null) => string;
-  children: ReactNode;
-}) {
-  const t = useTranslations();
-  return (
-    <details className="log-entry">
-      <summary className="log-item">
-        <span className={`log-dot status-${log.status}`} />
-        <strong>{title}</strong>
-        <span>{children}</span>
-        <time>{stamp(log.created_at)}</time>
-        <small>{log.duration_ms} ms</small>
-      </summary>
-      {log.output?.preview !== undefined && (
-        <div className="log-output">
-          <span className="eyebrow">
-            {t('execution.nodeOutput')}
-            {log.output.truncated ? ` · ${t('execution.truncated')}` : ''}
-          </span>
-          <pre className="result-output">{log.output.preview}</pre>
-        </div>
-      )}
-    </details>
-  );
-}
-
-/** Translation key describing why these variable names cannot be committed, or '' when they can. */
-function variableProblem(names: string[]): string {
-  if (names.some((key) => !VARIABLE_KEY.test(key) || FORBIDDEN_KEYS.includes(key))) return 'editor.variableInvalid';
-  return new Set(names).size !== names.length ? 'editor.variableDuplicate' : '';
-}
-
-function VariablesEditor({
-  values,
-  onChange,
-}: {
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-}) {
-  const t = useTranslations();
-  // Draft rows live here until every name is valid and unique; committing a duplicate through
-  // Object.fromEntries would silently drop one of the values.
-  const [entries, setEntries] = useState<[string, unknown][]>(() => Object.entries(values));
-  const names = entries.map(([key]) => key);
-  const problem = variableProblem(names);
-  const write = (next: [string, unknown][]) => {
-    setEntries(next);
-    if (!variableProblem(next.map(([key]) => key))) onChange(Object.fromEntries(next));
-  };
-  return (
-    <>
-      <span className="field-label">{t('editor.variables')}</span>
-      {entries.map(([key, value], index) => (
-        <div className="variable-row" key={index}>
-          <input
-            aria-label={t('editor.variableKey')}
-            placeholder={t('editor.variableKey')}
-            value={key}
-            maxLength={64}
-            onChange={(e) => write(entries.map((entry, i) => (i === index ? [e.target.value, entry[1]] : entry)))}
-          />
-          <input
-            className="code-input"
-            aria-label={t('editor.variableValue')}
-            placeholder="{{$json.data.id}}"
-            value={typeof value === 'string' ? value : JSON.stringify(value)}
-            onChange={(e) => write(entries.map((entry, i) => (i === index ? [entry[0], e.target.value] : entry)))}
-          />
-          <button
-            className="icon-button"
-            aria-label={t('editor.removeVariable', { name: key })}
-            onClick={() => write(entries.filter((_, i) => i !== index))}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      ))}
-      {problem && (
-        <p className="field-warning" role="alert">
-          <AlertTriangle size={14} />
-          {t(problem)}
-        </p>
-      )}
-      <button
-        className="secondary-button"
-        disabled={names.includes('')}
-        onClick={() => write([...entries, ['', '']])}
-      >
-        <Plus size={14} />
-        {t('editor.addVariable')}
-      </button>
-      <p className="field-help">{t('editor.variableHint')}</p>
-    </>
-  );
-}
-
-function CredentialsView({
-  credentials,
-  reload,
-  fail,
-  stamp,
-}: {
-  credentials: Credential[];
-  reload: () => Promise<void>;
-  fail: (e: unknown) => void;
-  stamp: (value: string | null) => string;
-}) {
-  const t = useTranslations();
-  const empty = { name: '', type: 'bearer' as CredentialType, headerName: 'x-api-key', value: '', username: '', password: '' };
-  const [form, setForm] = useState(empty);
-  const [replacing, setReplacing] = useState<Credential | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
-
-  useEffect(() => {
-    reload().catch(fail);
-  }, [reload, fail]);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setNotice('');
-    try {
-      const body = {
-        name: form.name,
-        type: form.type,
-        ...(form.type === 'api_key' ? { headerName: form.headerName, value: form.value } : {}),
-        ...(form.type === 'bearer' ? { value: form.value } : {}),
-        ...(form.type === 'basic' ? { username: form.username, password: form.password } : {}),
-      };
-      await request(replacing ? `/api/credentials/${replacing.id}` : '/api/credentials', {
-        method: replacing ? 'PUT' : 'POST',
-        body: JSON.stringify(body),
-      });
-      // Drop the secret from memory as soon as the server has it.
-      setForm(empty);
-      setReplacing(null);
-      setNotice(t('credentials.saved'));
-      await reload();
-    } catch (error) {
-      fail(error);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const destroy = async (credential: Credential) => {
-    if (!confirm(t('credentials.deleteConfirm', { name: credential.name }))) return;
-    try {
-      await request(`/api/credentials/${credential.id}`, { method: 'DELETE' });
-      await reload();
-    } catch (error) {
-      fail(error);
-    }
-  };
-
-  return (
-    <div className="workflow-home">
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">{t('credentials.eyebrow')}</p>
-          <h1>{t('credentials.title')}</h1>
-          <p>{t('credentials.description')}</p>
-        </div>
-      </div>
-
-      <div className="credentials-layout">
-        <form className="credential-form" onSubmit={submit} autoComplete="off">
-          <h2>{replacing ? `${t('credentials.replace')}: ${replacing.name}` : t('credentials.create')}</h2>
-          <label className="field-label">
-            {t('credentials.name')}
-            <input
-              required
-              maxLength={80}
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-          </label>
-          <label className="field-label">
-            {t('credentials.type')}
-            <select
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value as CredentialType })}
-            >
-              {CREDENTIAL_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {t(`credentials.type_${type}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-          {form.type === 'api_key' && (
-            <label className="field-label">
-              {t('credentials.headerName')}
-              <input
-                required
-                className="code-input"
-                maxLength={64}
-                pattern="[A-Za-z0-9!#$%&'*+.^_`|~\-]+"
-                value={form.headerName}
-                onChange={(e) => setForm({ ...form, headerName: e.target.value })}
-              />
-            </label>
-          )}
-          {form.type === 'basic' ? (
-            <>
-              <label className="field-label">
-                {t('credentials.username')}
-                <input
-                  required
-                  maxLength={256}
-                  value={form.username}
-                  onChange={(e) => setForm({ ...form, username: e.target.value })}
-                />
-              </label>
-              <label className="field-label">
-                {t('credentials.password')}
-                <input
-                  required
-                  type="password"
-                  minLength={4}
-                  maxLength={1024}
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                />
-              </label>
-            </>
-          ) : (
-            <label className="field-label">
-              {t('credentials.value')}
-              <input
-                required
-                type="password"
-                minLength={8}
-                maxLength={4096}
-                autoComplete="new-password"
-                value={form.value}
-                onChange={(e) => setForm({ ...form, value: e.target.value })}
-              />
-            </label>
-          )}
-          <p className="field-help">{t('credentials.valueHint')}</p>
-          <div className="toolbar-buttons">
-            <button className="primary-button" disabled={busy}>
-              <KeyRound size={15} />
-              {replacing ? t('credentials.replace') : t('credentials.create')}
-            </button>
-            {replacing && (
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => {
-                  setReplacing(null);
-                  setForm(empty);
-                }}
-              >
-                {t('credentials.cancelReplace')}
-              </button>
-            )}
-          </div>
-          {notice && (
-            <p className="field-help" role="status">
-              <Check size={14} /> {notice}
-            </p>
-          )}
-        </form>
-
-        <div className="workflow-list credential-list">
-          {credentials.length === 0 ? (
-            <p className="dock-empty">{t('credentials.empty')}</p>
-          ) : (
-            credentials.map((credential) => (
-              <div className="workflow-row" key={credential.id}>
-                <KeyRound size={18} />
-                <span className="workflow-name">
-                  {credential.name}
-                  <small>
-                    {t(`credentials.type_${credential.type}`)}
-                    {credential.header_name ? ` · ${credential.header_name}` : ''} · {t('credentials.secretHidden')} ·{' '}
-                    {t('credentials.keyVersion', { version: credential.key_version })}
-                  </small>
-                </span>
-                <time className="workflow-date">{stamp(credential.created_at)}</time>
-                <button
-                  className="secondary-button"
-                  onClick={() => {
-                    setReplacing(credential);
-                    setForm({ ...empty, name: credential.name, type: credential.type, headerName: credential.header_name ?? 'x-api-key' });
-                  }}
-                >
-                  {t('credentials.replace')}
-                </button>
-                <button
-                  className="icon-button"
-                  aria-label={`${t('common.delete')} ${credential.name}`}
-                  onClick={() => void destroy(credential)}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
   );
 }
