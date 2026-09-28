@@ -4,8 +4,9 @@ import { evaluateCondition } from "../src/lib/workflow/condition";
 import { validateDefinition } from "../src/lib/workflow/validate";
 import { executeWorkflow, NodeFailure, type EngineDeps, type HttpAttemptResult, type HttpNodeRequest, type LogEntry } from "../src/lib/workflow/engine";
 import { runHttpAttempt, type CredentialRow } from "../src/lib/workflow/http-node";
-import { preview, redact, secretVariants } from "../src/lib/workflow/redact";
+import { preview, redact, secretMatcher } from "../src/lib/workflow/redact";
 import { decryptSecret, encryptSecret, type CredentialSecret } from "../src/lib/vault";
+import { canonicalUuid } from "../src/lib/ids";
 import type { SafeHttpRequest, SafeHttpResponse } from "../src/lib/workflow/http";
 import type { WorkflowDefinition, WorkflowNode } from "../src/lib/workflow/types";
 
@@ -29,7 +30,7 @@ interface Harness {
 }
 
 /** Fake Inngest: memoizes step results by ID (replay), rejects duplicate IDs within one run. */
-function harness(http: (request: HttpNodeRequest, call: number) => Promise<HttpAttemptResult> | HttpAttemptResult, options: { now?: () => number; memo?: Map<string, unknown> } = {}): Harness {
+function harness(http: (request: HttpNodeRequest, call: number) => Promise<HttpAttemptResult> | HttpAttemptResult, options: { now?: () => number; memo?: Map<string, unknown>; start?: number } = {}): Harness {
   const logs = new Map<string, LogEntry>();
   const sleeps: [string, number][] = [];
   const requests: HttpNodeRequest[] = [];
@@ -41,7 +42,8 @@ function harness(http: (request: HttpNodeRequest, call: number) => Promise<HttpA
     seen.add(id);
     stepIds.push(id);
   };
-  let t = 1_000_000;
+  // Clock advances 5 ms per read and by the full duration of every sleep, like wall time across Inngest invocations.
+  let t = options.start ?? 1_000_000;
   const deps: EngineDeps = {
     step: {
       async run<T>(id: string, fn: () => Promise<T>): Promise<T> {
@@ -56,6 +58,7 @@ function harness(http: (request: HttpNodeRequest, call: number) => Promise<HttpA
       async sleep(id, seconds) {
         claim(id);
         sleeps.push([id, seconds]);
+        t += seconds * 1000;
       },
     },
     async writeLog(entry) { logs.set(entry.nodeId, entry); },
@@ -278,7 +281,7 @@ function vaultChecks() {
 }
 
 function redactionChecks() {
-  const variants = secretVariants(["s3cr3t-value", "a/b c"]);
+  const variants = secretMatcher(["s3cr3t-value", "a/b c"]);
   assert.deepEqual(redact({ echo: "Bearer s3cr3t-value", url: "https://x?k=a%2Fb%20c" }, variants), { echo: "Bearer [REDACTED]", url: "https://x?k=[REDACTED]" });
   assert.deepEqual(redact({ access_token: "zzz", Authorization: "x", nested: [{ "set-cookie": "sid=1" }], token: null }), { access_token: "[REDACTED]", Authorization: "[REDACTED]", nested: [{ "set-cookie": "[REDACTED]" }], token: null });
   assert.deepEqual(redact({ "s3cr3t-value": 1 }, variants), { "[REDACTED]": 1 }, "secrets in keys");
@@ -352,7 +355,84 @@ async function httpNodeChecks() {
   assert.equal(logs.find((entry) => entry.nodeId === "o" && entry.status === "success")!.status, "success");
 }
 
+/** Regressions from review (2026-09-28). Each block reproduced the bug before its fix. */
+async function reviewRegressionChecks() {
+  const DAY = 24 * 3600 * 1000;
+  // 1. Every URL/form/JSON encoding of a Vault secret is scrubbed, whatever the percent-hex case.
+  {
+    const variants = secretMatcher(["demo key/123"]);
+    for (const leak of ["demo key/123", "demo+key%2F123", "demo%20key%2f123", "demo%20key%2F123", "DEMO%20key/123".replace("DEMO", "demo"), "demo\\u0020key\\/123", "demo%2Bkey".replace("%2Bkey", "+key") + "%2f123"]) {
+      const out = JSON.stringify(redact({ echo: `x=${leak}&y=1` }, variants));
+      assert.ok(!out.includes("key"), `encoded secret leaked: ${leak} -> ${out}`);
+    }
+    assert.equal(redact("demo keys", variants), "demo keys", "no over-redaction of unrelated text");
+  }
+  // 2. The 24h ceiling stops retries and delays that cross it, replay-safely.
+  {
+    const statuses = [503, 200];
+    const h = harness((_, call) => ok(statuses[call - 1]), { start: 1_000_000 });
+    await assert.rejects(
+      run({ nodes: [node("t", "trigger.manual"), node("h", "action.http", { url: "https://x.example", retries: 1 })], edges: [edge("t", "h")] }, h, 1_000_000 - DAY + 1_000),
+      (error: unknown) => error instanceof NodeFailure && error.nodeId === "h" && error.reason === "errors.runTooLong",
+    );
+    assert.equal(h.requests.length, 1, "no attempt is sent after the deadline");
+    assert.equal(h.logs.get("h")!.status, "failed");
+  }
+  {
+    const h = harness(() => ok(200), { start: 1_000_000 });
+    await assert.rejects(
+      run({ nodes: [node("t", "trigger.manual"), node("d", "control.delay", { amount: 2, unit: "m" }), node("h", "action.http", { url: "https://x.example" })], edges: [edge("t", "d"), edge("d", "h")] }, h, 1_000_000 - DAY + 60_000),
+      (error: unknown) => error instanceof NodeFailure && error.nodeId === "d" && error.reason === "errors.runTooLong",
+    );
+    assert.equal(h.logs.get("d")!.status, "failed", "a delay ending past the deadline is not a success");
+    assert.equal(h.requests.length, 0);
+  }
+  {
+    // Success is refused when the attempt itself finished past the deadline; replay keeps the verdict.
+    const memo = new Map<string, unknown>();
+    let clock = 1_000_000;
+    const first = harness(async () => { clock += 5_000; return ok(200); }, { memo, now: () => clock });
+    const input = { nodes: [node("t", "trigger.manual"), node("h", "action.http", { url: "https://x.example" })], edges: [edge("t", "h")] };
+    await assert.rejects(run(input, first, 1_000_000 - DAY + 2_000), (e: unknown) => e instanceof NodeFailure && e.reason === "errors.runTooLong");
+    clock = 0; // a replay with a different clock must reach the same verdict
+    const second = harness(() => { throw new Error("replay must not call HTTP"); }, { memo, now: () => clock });
+    await assert.rejects(run(input, second, 1_000_000 - DAY + 2_000), (e: unknown) => e instanceof NodeFailure && e.reason === "errors.runTooLong");
+  }
+  // 3. Tokens inside hand-typed auth headers are scrubbed on their own, not only as the full header.
+  {
+    const cases: [Record<string, string>, string[]][] = [
+      [{ Authorization: "Bearer demo-secret-123" }, ["demo-secret-123"]],
+      [{ authorization: `Basic ${Buffer.from("alice:pa55-w0rd").toString("base64")}` }, ["pa55-w0rd", "alice:pa55-w0rd"]],
+      [{ "X-Api-Key": "k-987654321" }, ["k-987654321"]],
+      [{ Cookie: "sid=abcdef123456; theme=dark" }, ["abcdef123456"]],
+    ];
+    for (const [headers, secrets] of cases) {
+      const result = await runHttpAttempt({ url: "https://x.example", method: "GET", headers }, {
+        userId: USER, loadCredential: async () => null,
+        fetch: async () => ({ status: 200, headers: {}, data: { echo: secrets, text: secrets.join(" ") } }),
+      });
+      const text = JSON.stringify(result);
+      for (const secret of secrets) assert.ok(!text.includes(secret), `typed header component leaked: ${secret}`);
+    }
+  }
+  // 4. Unary operators never resolve the hidden right operand.
+  {
+    const h = harness(() => ok(200));
+    await run({ nodes: [node("t", "trigger.manual"), node("c", "control.condition", { left: "{{$json}}", operator: "exists", right: "{{ broken" }), node("o", "output.response")], edges: [edge("t", "c"), edge("c", "o", "true")] }, h);
+    assert.equal(h.logs.get("c")!.summary, "condition.true");
+  }
+  // 6. Credential IDs are canonical before they enter the AAD.
+  {
+    const upper = CRED.toUpperCase();
+    assert.equal(canonicalUuid(upper), CRED, "IDs are canonicalized to lowercase");
+    assert.equal(canonicalUuid("not-a-uuid"), null);
+    const sealed = encryptSecret({ type: "bearer", value: "tok-UPPERCASE-1" }, USER.toUpperCase(), upper);
+    assert.deepEqual(decryptSecret(sealed, USER, CRED), { type: "bearer", value: "tok-UPPERCASE-1" }, "AAD ignores UUID casing");
+  }
+}
+
 async function main() {
+  await reviewRegressionChecks();
   await conditionChecks();
   validationChecks();
   await engineChecks();

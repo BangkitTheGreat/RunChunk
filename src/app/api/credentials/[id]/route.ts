@@ -7,8 +7,8 @@ import { encryptSecret } from "@/lib/vault";
 export async function PUT(request: Request, ctx: RouteContext<"/api/credentials/[id]">) {
   try {
     sameOrigin(request);
-    const { id } = await ctx.params;
-    requireId(id);
+    // Canonical ID: it is part of the Vault AAD and must match the lowercase UUID Postgres returns.
+    const id = requireId((await ctx.params).id);
     const { user } = await authenticate();
     const body = await readJson(request, 16_000);
     const name = credentialName(body.name);
@@ -27,8 +27,7 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/credentials/
 export async function DELETE(request: Request, ctx: RouteContext<"/api/credentials/[id]">) {
   try {
     sameOrigin(request);
-    const { id } = await ctx.params;
-    requireId(id);
+    const id = requireId((await ctx.params).id);
     const { supabase, user } = await authenticate();
     const { data, error } = await supabase.from("credentials").delete().eq("id", id).eq("user_id", user.id).select("id").maybeSingle();
     if (error) throw error;

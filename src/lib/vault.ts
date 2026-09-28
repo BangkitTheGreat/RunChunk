@@ -37,7 +37,8 @@ export function currentKeyVersion(): number {
 }
 
 function aad(userId: string, credentialId: string, version: number): Buffer {
-  return Buffer.from(`runchunk:credential:v${version}:${userId}:${credentialId}`);
+  // UUIDs are compared canonically: an uppercase ID from a URL must seal the same AAD Postgres will return.
+  return Buffer.from(`runchunk:credential:v${version}:${userId.toLowerCase()}:${credentialId.toLowerCase()}`);
 }
 
 export function encryptSecret(secret: CredentialSecret, userId: string, credentialId: string): EncryptedSecret {

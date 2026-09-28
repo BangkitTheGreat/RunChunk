@@ -132,7 +132,9 @@
     "retryCount": "{count}x",
     "retriesHint": "Only for network errors, timeouts, 429, and 5xx. Waits 2s, 4s, then 8s.",
     "retryWarning": "{method} can change data on the target server. Retrying may repeat the side effect, for example saving a record twice.",
-    "headersSecretHint": "Do not put API keys in headers. Store them as a Credential and pick it above."
+    "headersSecretHint": "Do not put API keys in headers. Store them as a Credential and pick it above.",
+    "variableInvalid": "Variable names are required: letters, digits, _ or -, starting with a letter or _. Changes are not applied yet.",
+    "variableDuplicate": "That variable name is already used. Changes are not applied until names are unique."
   },
   "nodes": {
     "triggerManual": "Manual Trigger",

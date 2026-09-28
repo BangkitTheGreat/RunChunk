@@ -1,5 +1,5 @@
 import {
-  CONDITION_HANDLES, CONDITION_OPERATORS, DELAY_UNITS, HTTP_METHODS, MAX_DELAY_SECONDS, MAX_RETRIES, MAX_RUN_SECONDS, NODE_CATALOG,
+  CONDITION_HANDLES, CONDITION_OPERATORS, DELAY_UNITS, FORBIDDEN_KEYS, HTTP_METHODS, MAX_DELAY_SECONDS, MAX_RETRIES, MAX_RUN_SECONDS, NODE_CATALOG, VARIABLE_KEY,
   type DelayUnit, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode,
 } from "./types";
 
@@ -9,9 +9,7 @@ const MAX_BYTES = 256_000;
 const MAX_VARIABLES = 50;
 /** Worst case for one HTTP attempt (safeFetch deadline) used for the run-lifetime budget. */
 export const HTTP_ATTEMPT_SECONDS = 10;
-export const VARIABLE_KEY = /^[A-Za-z_][\w-]{0,63}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const supported = new Set(NODE_CATALOG.filter((node) => node.implemented).map((node) => node.type));
 
 function invalid(): never {
@@ -73,7 +71,7 @@ function validateNodeData(node: WorkflowNode) {
       if (data.values === undefined) break;
       if (!isRecord(data.values)) invalid();
       const keys = Object.keys(data.values as Record<string, unknown>);
-      if (keys.length > MAX_VARIABLES || keys.some((key) => !VARIABLE_KEY.test(key) || FORBIDDEN_KEYS.has(key))) invalid();
+      if (keys.length > MAX_VARIABLES || keys.some((key) => !VARIABLE_KEY.test(key) || FORBIDDEN_KEYS.includes(key))) invalid();
       break;
     }
   }

@@ -46,6 +46,10 @@ export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] as
 export const UNSAFE_RETRY_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
 export const MAX_RETRIES = 3;
 
+/** Names accepted by action.set_variable (also usable as `$vars.name`). */
+export const VARIABLE_KEY = /^[A-Za-z_][\w-]{0,63}$/;
+export const FORBIDDEN_KEYS: readonly string[] = ["__proto__", "prototype", "constructor"];
+
 export const CREDENTIAL_TYPES = ["api_key", "bearer", "basic"] as const;
 export type CredentialType = (typeof CREDENTIAL_TYPES)[number];
 

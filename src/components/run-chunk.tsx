@@ -47,6 +47,8 @@ import {
   MAX_RETRIES,
   UNARY_OPERATORS,
   UNSAFE_RETRY_METHODS,
+  VARIABLE_KEY,
+  FORBIDDEN_KEYS,
 } from '@/lib/workflow/types';
 import type { CredentialType, NodeType, WorkflowDefinition } from '@/lib/workflow/types';
 import { createClient as createBrowserSupabase } from '@/lib/supabase/browser';
@@ -1118,6 +1120,7 @@ function Workspace() {
 
                   {currentNode.type === 'action.set_variable' && (
                     <VariablesEditor
+                      key={currentNode.id}
                       values={(currentNode.data.values as Record<string, unknown>) ?? {}}
                       onChange={(values) => update({ values })}
                     />
@@ -1272,6 +1275,12 @@ function LogRow({
   );
 }
 
+/** Translation key describing why these variable names cannot be committed, or '' when they can. */
+function variableProblem(names: string[]): string {
+  if (names.some((key) => !VARIABLE_KEY.test(key) || FORBIDDEN_KEYS.includes(key))) return 'editor.variableInvalid';
+  return new Set(names).size !== names.length ? 'editor.variableDuplicate' : '';
+}
+
 function VariablesEditor({
   values,
   onChange,
@@ -1280,9 +1289,15 @@ function VariablesEditor({
   onChange: (values: Record<string, unknown>) => void;
 }) {
   const t = useTranslations();
-  // Rows keep their own order and allow a key to be edited without losing its value.
-  const entries = Object.entries(values);
-  const write = (next: [string, unknown][]) => onChange(Object.fromEntries(next));
+  // Draft rows live here until every name is valid and unique; committing a duplicate through
+  // Object.fromEntries would silently drop one of the values.
+  const [entries, setEntries] = useState<[string, unknown][]>(() => Object.entries(values));
+  const names = entries.map(([key]) => key);
+  const problem = variableProblem(names);
+  const write = (next: [string, unknown][]) => {
+    setEntries(next);
+    if (!variableProblem(next.map(([key]) => key))) onChange(Object.fromEntries(next));
+  };
   return (
     <>
       <span className="field-label">{t('editor.variables')}</span>
@@ -1311,9 +1326,15 @@ function VariablesEditor({
           </button>
         </div>
       ))}
+      {problem && (
+        <p className="field-warning" role="alert">
+          <AlertTriangle size={14} />
+          {t(problem)}
+        </p>
+      )}
       <button
         className="secondary-button"
-        disabled={Object.hasOwn(values, '')}
+        disabled={names.includes('')}
         onClick={() => write([...entries, ['', '']])}
       >
         <Plus size={14} />

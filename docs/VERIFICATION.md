@@ -54,6 +54,21 @@ Status:
 | Retry per node 0–3x + peringatan POST | Terverifikasi | tes: 503→429→200 = 3 percobaan dengan jeda 2 s dan 4 s; timeout diulang; 4xx dan penolakan SSRF tidak diulang; tiap percobaan punya step ID sendiri. Playwright: peringatan tampil untuk POST dengan retry 2 |
 | **Demo minggu 4**: cabang + credential Vault, API key tak terlihat di log/network | Sebagian | Terbukti di tingkat engine (tes end-to-end dengan echo tiruan) dan UI (API tiruan). Belum dijalankan dengan Supabase + Inngest sungguhan. Catatan: request `POST /api/credentials` saat user menyimpan rahasia memang membawa nilainya (tak terhindarkan); semua respons API hanya berisi metadata |
 
+## Temuan review ronde 2 (setelah commit `e35f2d1`)
+
+Keenam temuan direproduksi dulu dengan tes yang gagal, baru diperbaiki. Setiap perbaikan juga diuji mutasi: bila perbaikannya dibalik, tesnya gagal lagi. Tes ada di `reviewRegressionChecks` di `scripts/check-engine.ts`.
+
+| # | Temuan | Reproduksi sebelum fix | Perbaikan |
+|---|---|---|---|
+| 1 | Rahasia lolos sebagai `demo+key%2F123` / `demo%20key%2f123` | `encoded secret leaked: demo+key%2F123` | Pencocokan per karakter: literal, `%XX` (hex huruf besar/kecil), `+` untuk spasi, escape JSON (`redact.ts`) |
+| 2 | Retry tetap mengirim HTTP setelah deadline 24 jam; node tetap sukses | `Missing expected rejection` | Deadline dicek di dalam step tiap percobaan dan di dalam step pencatat sukses; tes replay dengan jam berbeda menghasilkan vonis yang sama (`engine.ts`) |
+| 3 | Token dari header `Authorization` manual lolos bila dipantulkan tanpa `Bearer` | `typed header component leaked: demo-secret-123` (saat fix dibalik) | `headerSecrets`: token setelah skema, isi Basic yang di-decode, nilai cookie (`http-node.ts`) |
+| 4 | `exists`/`is_empty` gagal karena operand kanan yang tersembunyi dievaluasi | node gagal `errors.invalidExpression` (saat fix dibalik) | Operand kanan hanya di-resolve untuk operator biner |
+| 5 | Rename variabel ke nama yang sudah ada menghapus nilai lain | Playwright pada UI versi lama: 2 baris menjadi 1, `found` hilang tanpa peringatan | Draft baris disimpan terpisah; nama duplikat atau tidak valid memunculkan peringatan dan tidak diterapkan. Playwright: peringatan tampil, nilai tersimpan tetap utuh, lalu diterapkan setelah nama diperbaiki |
+| 6 | UUID huruf besar di URL merusak AAD saat ganti rahasia | `errors.credentialDecryptFailed` | `canonicalUuid` (`src/lib/ids.ts`): `requireId` mengembalikan ID kanonis, dan AAD menormalisasi huruf |
+
+Temuan 1–4 dan 6 diuji di tingkat unit/engine. Temuan 5 diuji lewat browser dengan API tiruan. Endpoint credential dengan database sungguhan tetap belum diuji (butuh Supabase).
+
 ## Yang perlu dijalankan dengan layanan sungguhan
 
 1. Terapkan migrasi `0003_credentials.sql`, isi `CREDENTIALS_KEY_V1` di `.env.local`.

@@ -1,4 +1,5 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { canonicalUuid } from "@/lib/ids";
 
 export class ApiError extends Error {
   constructor(public status: number, key: string) { super(key); }
@@ -50,9 +51,11 @@ export async function authenticate() {
   return { supabase, user };
 }
 
+/** Validates a UUID route param and returns its canonical lowercase form. */
 export function requireId(id: string) {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new ApiError(400, "errors.invalidInput");
-  return id;
+  const canonical = canonicalUuid(id);
+  if (!canonical) throw new ApiError(400, "errors.invalidInput");
+  return canonical;
 }
 
 export function workflowName(value: unknown) {

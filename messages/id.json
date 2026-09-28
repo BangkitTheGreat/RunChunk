@@ -132,7 +132,9 @@
     "retryCount": "{count}x",
     "retriesHint": "Hanya untuk error jaringan, timeout, 429, dan 5xx. Jeda 2 detik, 4 detik, lalu 8 detik.",
     "retryWarning": "Metode {method} bisa mengubah data di server tujuan. Mengulang permintaan bisa menimbulkan efek ganda, misalnya data tersimpan dua kali.",
-    "headersSecretHint": "Jangan tulis API key di header. Simpan di Credential lalu pilih di atas."
+    "headersSecretHint": "Jangan tulis API key di header. Simpan di Credential lalu pilih di atas.",
+    "variableInvalid": "Nama variabel wajib diisi: huruf, angka, _ atau -, diawali huruf atau _. Perubahan belum diterapkan.",
+    "variableDuplicate": "Nama variabel sudah dipakai. Perubahan belum diterapkan sampai namanya unik."
   },
   "nodes": {
     "triggerManual": "Pemicu Manual",

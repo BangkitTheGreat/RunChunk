@@ -2,7 +2,7 @@ import { evaluateCondition } from "./condition";
 import { resolveExpression, type ExpressionScope } from "./expression";
 import { preview, redact } from "./redact";
 import { delaySeconds, retryCount, retryWaitSeconds } from "./validate";
-import { MAX_RUN_SECONDS, type ConditionOperator, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from "./types";
+import { MAX_RUN_SECONDS, UNARY_OPERATORS, type ConditionOperator, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode } from "./types";
 import type { SafeHttpResponse } from "./http";
 
 // Durable workflow executor, independent of Inngest so it can be tested with a fake step runner.
@@ -112,6 +112,8 @@ export async function executeWorkflow(input: EngineInput, deps: EngineDeps): Pro
   const { definition, runStartedAt } = input;
   const triggerData = input.triggerData ?? {};
   const { step } = deps;
+  // Every deadline check reads the clock inside a step, so a replay sees the memoized verdict.
+  const deadline = runStartedAt + MAX_RUN_SECONDS * 1000;
   const incoming = new Map(definition.nodes.map((node) => [node.id, [] as WorkflowEdge[]]));
   const outgoing = new Map(definition.nodes.map((node) => [node.id, [] as WorkflowEdge[]]));
   for (const edge of definition.edges) {
@@ -150,7 +152,7 @@ export async function executeWorkflow(input: EngineInput, deps: EngineDeps): Pro
     let routes: WorkflowEdge[] = outgoing.get(node.id)!;
     let attempts: number | undefined;
     try {
-      if (started - runStartedAt > MAX_RUN_SECONDS * 1000) throw new Error("errors.runTooLong");
+      if (started > deadline) throw new Error("errors.runTooLong");
       if (active.length > 1) throw new Error("errors.multipleActiveInputs");
       const predecessor = active[0]?.source;
       const json = predecessor ? outputs[predecessor] : triggerData;
@@ -165,7 +167,8 @@ export async function executeWorkflow(input: EngineInput, deps: EngineDeps): Pro
           const retries = retryCount(node);
           for (let attempt = 0; ; attempt++) {
             if (attempt > 0) await step.sleep(`retry-wait-${node.id}-${attempt}`, retryWaitSeconds(attempt));
-            const result = await step.run(`node-${node.id}-attempt-${attempt}`, () => deps.http(request));
+            const result = await step.run(`node-${node.id}-attempt-${attempt}`, async (): Promise<HttpAttemptResult> =>
+              deps.now() > deadline ? { ok: false, error: "errors.runTooLong", retryable: false } : deps.http(request));
             attempts = attempt + 1;
             const canRetry = attempt < retries;
             if (result.ok) {
@@ -180,7 +183,9 @@ export async function executeWorkflow(input: EngineInput, deps: EngineDeps): Pro
         }
         case "control.condition": {
           const operator = (node.data.operator ?? "equals") as ConditionOperator;
-          const passed = evaluateCondition(operator, resolveExpression(node.data.left, scope), resolveExpression(node.data.right, scope));
+          // The right field is hidden for unary operators; resolving it could fail on a stale value.
+          const right = UNARY_OPERATORS.includes(operator) ? undefined : resolveExpression(node.data.right, scope);
+          const passed = evaluateCondition(operator, resolveExpression(node.data.left, scope), right);
           output = json;
           summary = passed ? "condition.true" : "condition.false";
           routes = routes.filter((edge) => edge.sourceHandle === String(passed));
@@ -204,6 +209,17 @@ export async function executeWorkflow(input: EngineInput, deps: EngineDeps): Pro
           throw new Error("errors.invalidWorkflow");
       }
       output = boundedOutput(output);
+      // Success is only recorded while the run is still inside its lifetime (covers delays and slow attempts).
+      const recorded = await step.run(`log-${node.id}`, async () => {
+        const finished = deps.now();
+        if (finished > deadline) return false;
+        await deps.writeLog({
+          nodeId: node.id, status: "success", summary, durationMs: Math.max(0, finished - started),
+          output: { ...preview(redact(output)), ...(attempts ? { attempts } : {}) },
+        });
+        return true;
+      });
+      if (!recorded) throw new Error("errors.runTooLong");
     } catch (error) {
       const reason = error instanceof Error && error.message.startsWith("errors.") ? error.message : "errors.workflowNodeFailed";
       // Only the error key is persisted: no URL, headers, body, response, expression or raw exception.
@@ -219,10 +235,6 @@ export async function executeWorkflow(input: EngineInput, deps: EngineDeps): Pro
 
     outputs[node.id] = output;
     for (const edge of routes) activeEdges.add(edge.id);
-    await step.run(`log-${node.id}`, () => deps.writeLog({
-      nodeId: node.id, status: "success", summary, durationMs: Math.max(0, deps.now() - started),
-      output: { ...preview(redact(output)), ...(attempts ? { attempts } : {}) },
-    }));
   }
   return redact(finalOutput);
 }
