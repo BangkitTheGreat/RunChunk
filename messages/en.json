@@ -17,7 +17,8 @@
     "theme": "Change theme",
     "language": "Change language",
     "close": "Close",
-    "back": "Back"
+    "back": "Back",
+    "credentials": "Credentials"
   },
   "auth": {
     "title": "Sign in to RunChunk",
@@ -45,7 +46,30 @@
     "dispatchFailed": "Workflow could not be scheduled.",
     "invalidWorkflow": "Workflow definition is invalid.",
     "requestFailed": "Request failed.",
-    "invalidHeaders": "Headers must be a JSON object with text values."
+    "invalidHeaders": "Headers must be a JSON object with text values.",
+    "httpInvalidUrl": "HTTP URL is invalid or empty.",
+    "httpInvalidHeaders": "HTTP headers are invalid.",
+    "httpInvalidMethod": "HTTP method is not supported.",
+    "httpBlockedAddress": "Target address is blocked (internal/private address).",
+    "httpDnsFailed": "Domain name could not be resolved.",
+    "httpTimeout": "HTTP request timed out.",
+    "httpBodyTooLarge": "Request body is too large.",
+    "httpResponseTooLarge": "Response is too large.",
+    "httpTooManyRedirects": "Too many redirects.",
+    "httpRequestFailed": "HTTP request failed.",
+    "outputTooLarge": "Node output is too large.",
+    "invalidExpression": "Expression is invalid.",
+    "expressionTooLarge": "Expression is too large.",
+    "conditionNotNumber": "Greater/less than needs two numbers.",
+    "multipleActiveInputs": "Two active branches meet at this node. Merge is not available yet; give each branch its own output.",
+    "runTooLong": "Run exceeded the 24-hour lifetime limit.",
+    "credentialNotFound": "Credential not found.",
+    "credentialDecryptFailed": "Credential could not be opened.",
+    "credentialInvalid": "Credential configuration is invalid.",
+    "vaultNotConfigured": "Vault is not configured on the server (CREDENTIALS_KEY_V1).",
+    "workflowFailed": "Workflow failed.",
+    "workflowNodeFailed": "A node failed.",
+    "executionPersistenceFailed": "Execution status could not be saved."
   },
   "dashboard": {
     "workspace": "WORKSPACE",
@@ -56,7 +80,7 @@
     "untitled": "Untitled workflow",
     "create": "New workflow",
     "emptyTitle": "No workflows yet",
-    "emptyBody": "Create your first workflow with manual, HTTP, and output nodes.",
+    "emptyBody": "Create your first workflow with manual, HTTP, condition, and output nodes.",
     "open": "Open workflow"
   },
   "editor": {
@@ -83,7 +107,32 @@
     "expression": "Output expression",
     "expressionHint": "Pass through the previous node output with this expression:",
     "httpWarning": "HTTP requests are restricted to prevent access to internal addresses.",
-    "discard": "Discard unsaved changes?"
+    "discard": "Discard unsaved changes?",
+    "left": "Left value",
+    "operator": "Operator",
+    "right": "Right value",
+    "conditionHint": "The top port runs when the condition is true, the bottom port when false. Example: '{{$json.status}}' equals 404.",
+    "portTrue": "true",
+    "portFalse": "false",
+    "amount": "Duration",
+    "unit": "Unit",
+    "delayHint": "At most 1 hour per node. A run lives at most 24 hours in total.",
+    "variables": "Variables",
+    "variableKey": "Name",
+    "variableValue": "Value",
+    "addVariable": "Add variable",
+    "removeVariable": "Remove variable {name}",
+    "variableHint": "Values merge into $json and are available as $vars.name in later nodes.",
+    "credential": "Credential",
+    "noCredential": "No credential",
+    "manageCredentials": "Manage credentials",
+    "credentialHint": "The secret is added on the server when the request is sent. The browser and logs never see its value.",
+    "retries": "Retry on failure",
+    "retryNone": "No retry",
+    "retryCount": "{count}x",
+    "retriesHint": "Only for network errors, timeouts, 429, and 5xx. Waits 2s, 4s, then 8s.",
+    "retryWarning": "{method} can change data on the target server. Retrying may repeat the side effect, for example saving a record twice.",
+    "headersSecretHint": "Do not put API keys in headers. Store them as a Credential and pick it above."
   },
   "nodes": {
     "triggerManual": "Manual Trigger",
@@ -100,7 +149,12 @@
     "empty": "No executions yet. Run your workflow to see history.",
     "select": "Select an execution to view logs.",
     "finished": "Finished",
-    "result": "Output"
+    "result": "Output",
+    "nodeOutput": "Node output",
+    "truncated": "truncated",
+    "attempts": "{count} attempts",
+    "live": "Live",
+    "offline": "Reconnecting…"
   },
   "status": {
     "pending": "Pending",
@@ -110,5 +164,46 @@
     "skipped": "Skipped",
     "partial_failed": "Partially failed",
     "dispatch_failed": "Dispatch failed"
+  },
+  "operators": {
+    "equals": "equals",
+    "not_equals": "does not equal",
+    "contains": "contains",
+    "gt": "greater than",
+    "lt": "less than",
+    "exists": "exists",
+    "is_empty": "is empty"
+  },
+  "units": {
+    "s": "seconds",
+    "m": "minutes",
+    "h": "hours"
+  },
+  "condition": {
+    "true": "Condition true",
+    "false": "Condition false"
+  },
+  "credentials": {
+    "title": "Credentials",
+    "eyebrow": "VAULT",
+    "description": "Store an API key once and use it in many HTTP nodes. Values are AES-256-GCM encrypted on the server and never sent back to the browser.",
+    "empty": "No credentials yet.",
+    "name": "Name",
+    "type": "Type",
+    "type_api_key": "API key (header)",
+    "type_bearer": "Bearer token",
+    "type_basic": "Basic auth",
+    "headerName": "Header name",
+    "value": "Secret value",
+    "username": "Username",
+    "password": "Password",
+    "create": "Save credential",
+    "replace": "Replace secret",
+    "cancelReplace": "Cancel",
+    "saved": "Stored encrypted. The secret value will not be shown again.",
+    "deleteConfirm": "Delete credential \"{name}\"? Nodes that use it will fail.",
+    "keyVersion": "key v{version}",
+    "secretHidden": "••••••••",
+    "valueHint": "At least 8 characters. Once saved it cannot be viewed, only replaced."
   }
 }

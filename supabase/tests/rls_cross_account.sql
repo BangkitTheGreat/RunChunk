@@ -18,6 +18,10 @@ insert into public.executions (id, workflow_id, user_id, definition_snapshot, de
 insert into public.execution_logs (execution_id, node_id, status) values
   ('20000000-0000-0000-0000-00000000000a', 'trigger', 'success');
 
+insert into public.credentials (id, user_id, name, type, header_name, ciphertext, nonce, tag, key_version) values
+  ('30000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'A key', 'api_key', 'x-api-key',
+   'Y2lwaGVy', 'bm9uY2Vub25jZQ==', 'dGFndGFndGFndGFndGFn', 1);
+
 do $$
 begin
   if (select count(*) from public.profiles
@@ -54,6 +58,32 @@ begin
   begin
     update public.workflows set version = 99 where id = '10000000-0000-0000-0000-00000000000a';
     raise exception 'FAIL: A updated workflow version directly';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- Vault: owner sees metadata only, never ciphertext, and cannot write secrets directly
+  if (select count(*) from (select id, name, type, header_name from public.credentials) c) <> 1 then
+    raise exception 'FAIL: A cannot see own credential metadata';
+  end if;
+  begin
+    perform ciphertext from public.credentials;
+    raise exception 'FAIL: A read credential ciphertext';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform nonce, tag from public.credentials;
+    raise exception 'FAIL: A read credential nonce/tag';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.credentials (user_id, name, type, ciphertext, nonce, tag, key_version)
+    values ('00000000-0000-0000-0000-00000000000a', 'raw', 'bearer', 'x', 'x', 'x', 1);
+    raise exception 'FAIL: client inserted credential';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.credentials set name = 'renamed';
+    raise exception 'FAIL: client updated credential';
   exception when insufficient_privilege then null;
   end;
 end;
@@ -140,6 +170,11 @@ begin
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'FAIL: B cannot update own locale'; end if;
 
+  if exists (select id from public.credentials) then raise exception 'FAIL: B sees A credential'; end if;
+  delete from public.credentials where id = '30000000-0000-0000-0000-00000000000a';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: B deleted A credential'; end if;
+
   -- B's own workflow works
   insert into public.workflows (name, definition) values ('B flow', '{}');
   if (select count(*) from public.workflows) <> 1 then raise exception 'FAIL: B own workflow insert'; end if;
@@ -158,6 +193,9 @@ begin
   end if;
   if (select status from public.executions where id = '20000000-0000-0000-0000-00000000000a') <> 'pending' then
     raise exception 'FAIL: A execution changed';
+  end if;
+  if not exists (select 1 from public.credentials where id = '30000000-0000-0000-0000-00000000000a' and name = 'A key') then
+    raise exception 'FAIL: A credential changed';
   end if;
   raise notice 'rls_cross_account: all checks passed';
 end;

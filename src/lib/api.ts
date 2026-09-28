@@ -11,7 +11,7 @@ export function json(data: unknown, status = 200) {
 export function apiError(error: unknown) {
   if (error instanceof ApiError) return json({ error: error.message }, error.status);
   if (error instanceof Error && error.message === "errors.invalidWorkflow") return json({ error: error.message }, 400);
-  if (error instanceof Error && error.message === "errors.setupRequired") return json({ error: error.message }, 503);
+  if (error instanceof Error && (error.message === "errors.setupRequired" || error.message === "errors.vaultNotConfigured")) return json({ error: error.message }, 503);
   console.error("Unhandled API Error", error && typeof error === "object" && "code" in error && typeof error.code === "string" && /^[A-Z0-9]{4,8}$/.test(error.code) ? { code: error.code } : { type: error instanceof Error ? error.name : "unknown" });
   return json({ error: "errors.server" }, 500);
 }
