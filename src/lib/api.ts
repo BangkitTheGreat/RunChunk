@@ -1,4 +1,5 @@
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { canonicalUuid } from "@/lib/ids";
 
 export class ApiError extends Error {
   constructor(public status: number, key: string) { super(key); }
@@ -11,7 +12,7 @@ export function json(data: unknown, status = 200) {
 export function apiError(error: unknown) {
   if (error instanceof ApiError) return json({ error: error.message }, error.status);
   if (error instanceof Error && error.message === "errors.invalidWorkflow") return json({ error: error.message }, 400);
-  if (error instanceof Error && error.message === "errors.setupRequired") return json({ error: error.message }, 503);
+  if (error instanceof Error && (error.message === "errors.setupRequired" || error.message === "errors.vaultNotConfigured")) return json({ error: error.message }, 503);
   console.error("Unhandled API Error", error && typeof error === "object" && "code" in error && typeof error.code === "string" && /^[A-Z0-9]{4,8}$/.test(error.code) ? { code: error.code } : { type: error instanceof Error ? error.name : "unknown" });
   return json({ error: "errors.server" }, 500);
 }
@@ -50,9 +51,11 @@ export async function authenticate() {
   return { supabase, user };
 }
 
+/** Validates a UUID route param and returns its canonical lowercase form. */
 export function requireId(id: string) {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new ApiError(400, "errors.invalidInput");
-  return id;
+  const canonical = canonicalUuid(id);
+  if (!canonical) throw new ApiError(400, "errors.invalidInput");
+  return canonical;
 }
 
 export function workflowName(value: unknown) {

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import http from "node:http";
 import { validateDefinition } from "../src/lib/workflow/validate";
 import { resolveExpression } from "../src/lib/workflow/expression";
 import { isNonPublicIp, safeFetch } from "../src/lib/workflow/http";
@@ -36,14 +35,16 @@ async function main() {
     edges: [{ id: "e1", source: "t1", target: "a1" }, { id: "e2", source: "t1", target: "a1" }],
   }), /errors\.invalidWorkflow/);
 
-  assert.throws(() => validateDefinition({
+  // Rejoining branches are structurally valid since week 3; the engine fails the node at run time
+  // when more than one incoming edge is active (see scripts/check-engine.ts).
+  assert.doesNotThrow(() => validateDefinition({
     nodes: [
       { id: "t1", type: "trigger.manual", position: { x: 0, y: 0 }, data: {} },
       { id: "a1", type: "action.http", position: { x: 0, y: 0 }, data: {} },
       { id: "a2", type: "action.http", position: { x: 0, y: 0 }, data: {} },
     ],
     edges: [{ id: "e1", source: "t1", target: "a1" }, { id: "e2", source: "a1", target: "a2" }, { id: "e3", source: "t1", target: "a2" }],
-  }), /errors\.invalidWorkflow/);
+  }));
 
   const publicIps = ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"];
   for (const ip of publicIps) {
