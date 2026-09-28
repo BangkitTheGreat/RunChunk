@@ -10,3 +10,4 @@ for f in supabase/migrations/*.sql; do run -f "$f"; done
 for t in supabase/tests/rls_cross_account.sql supabase/tests/quota_webhook_schedule.sql; do
   run -f "$t" 2>&1 | grep -E "NOTICE:.*all checks passed|ERROR|FAIL" || { echo "no result from $t"; exit 1; }
 done
+scripts/db-concurrency.sh

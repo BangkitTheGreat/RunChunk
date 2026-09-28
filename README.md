@@ -61,8 +61,8 @@ psql "$DB" -v ON_ERROR_STOP=1 -f supabase/tests/rls_cross_account.sql
 psql "$DB" -v ON_ERROR_STOP=1 -f supabase/tests/quota_webhook_schedule.sql
 ```
 
-Or run everything (stub, migrations, both suites) with `DB="$DB" scripts/db-check.sh`.
-*Atau jalankan semuanya (stub, migrasi, kedua suite) dengan `DB="$DB" scripts/db-check.sh`.*
+Or run everything (stub, migrations, both suites, and the parallel checks in `scripts/db-concurrency.sh`) with `DB="$DB" scripts/db-check.sh`. The parallel checks commit one throwaway user and delete it on exit, so use an empty test database.
+*Atau jalankan semuanya (stub, migrasi, kedua suite, dan uji paralel `scripts/db-concurrency.sh`) dengan `DB="$DB" scripts/db-check.sh`. Uji paralel meng-commit satu user sementara lalu menghapusnya, jadi pakai database uji kosong.*
 
 ### Automated checks / *Pemeriksaan otomatis*
 
