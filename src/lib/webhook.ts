@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { WebhookTriggerData } from "./workflow/types";
 
 // Public webhook endpoints: the token is the whole secret. It is generated here, shown to the owner once,
@@ -57,4 +57,46 @@ export function buildTriggerData(request: { method: string; url: string; headers
     body,
     receivedAt: receivedAt.toISOString(),
   };
+}
+
+// Optional request signing. Senders that support it put `t=<unix seconds>,v1=<hex HMAC-SHA256>` in
+// X-RunChunk-Signature, where the MAC covers `${t}.${rawBody}` with the endpoint's shared secret.
+// The timestamp bounds replay; the comparison is constant-time.
+
+export const SIGNATURE_HEADER = "x-runchunk-signature";
+export const SIGNATURE_TOLERANCE_SECONDS = 300;
+const SECRET_BYTES = 32;
+
+export function generateSigningSecret(): string {
+  return randomBytes(SECRET_BYTES).toString("base64url");
+}
+
+function mac(secret: string, timestamp: number, rawBody: string): Buffer {
+  return createHmac("sha256", secret).update(`${timestamp}.${rawBody}`, "utf8").digest();
+}
+
+/** Header value a sender must attach. Exposed for docs, tests, and the curl example in the editor. */
+export function signPayload(secret: string, rawBody: string, timestamp = Math.floor(Date.now() / 1000)): string {
+  return `t=${timestamp},v1=${mac(secret, timestamp, rawBody).toString("hex")}`;
+}
+
+export type SignatureVerdict = { ok: true } | { ok: false; reason: "errors.webhookSignatureMissing" | "errors.webhookSignatureInvalid" | "errors.webhookSignatureStale" };
+
+export function verifySignature(secret: string, header: string | null, rawBody: string, nowSeconds = Math.floor(Date.now() / 1000), toleranceSeconds = SIGNATURE_TOLERANCE_SECONDS): SignatureVerdict {
+  if (!header) return { ok: false, reason: "errors.webhookSignatureMissing" };
+  const parts = new Map<string, string[]>();
+  for (const piece of header.split(",")) {
+    const eq = piece.indexOf("=");
+    if (eq <= 0) continue;
+    const key = piece.slice(0, eq).trim();
+    parts.set(key, [...(parts.get(key) ?? []), piece.slice(eq + 1).trim()]);
+  }
+  const timestamp = Number(parts.get("t")?.[0]);
+  const candidates = (parts.get("v1") ?? []).filter((value) => /^[0-9a-f]{64}$/i.test(value));
+  if (!Number.isInteger(timestamp) || candidates.length === 0) return { ok: false, reason: "errors.webhookSignatureInvalid" };
+  if (Math.abs(nowSeconds - timestamp) > toleranceSeconds) return { ok: false, reason: "errors.webhookSignatureStale" };
+  const expected = mac(secret, timestamp, rawBody);
+  // Several v1 values are allowed so a sender can sign with old and new secrets during rotation.
+  const matched = candidates.some((candidate) => timingSafeEqual(Buffer.from(candidate, "hex"), expected));
+  return matched ? { ok: true } : { ok: false, reason: "errors.webhookSignatureInvalid" };
 }

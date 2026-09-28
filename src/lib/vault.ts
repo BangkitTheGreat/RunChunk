@@ -8,7 +8,11 @@ import type { CredentialType } from "./workflow/types";
 export type CredentialSecret =
   | { type: "api_key"; value: string }
   | { type: "bearer"; value: string }
-  | { type: "basic"; username: string; password: string };
+  | { type: "basic"; username: string; password: string }
+  | { type: "webhook_secret"; value: string };
+
+/** Domain of a ciphertext. Part of the AAD, so a webhook signing secret can never be decrypted as a credential. */
+export type SecretPurpose = "credential" | "webhook-signing";
 
 export interface EncryptedSecret {
   ciphertext: string;
@@ -36,16 +40,16 @@ export function currentKeyVersion(): number {
   return version;
 }
 
-function aad(userId: string, credentialId: string, version: number): Buffer {
+function aad(userId: string, id: string, version: number, purpose: SecretPurpose): Buffer {
   // UUIDs are compared canonically: an uppercase ID from a URL must seal the same AAD Postgres will return.
-  return Buffer.from(`runchunk:credential:v${version}:${userId.toLowerCase()}:${credentialId.toLowerCase()}`);
+  return Buffer.from(`runchunk:${purpose}:v${version}:${userId.toLowerCase()}:${id.toLowerCase()}`);
 }
 
-export function encryptSecret(secret: CredentialSecret, userId: string, credentialId: string): EncryptedSecret {
+export function encryptSecret(secret: CredentialSecret, userId: string, id: string, purpose: SecretPurpose = "credential"): EncryptedSecret {
   const version = currentKeyVersion();
   const nonce = randomBytes(NONCE_BYTES);
   const cipher = createCipheriv("aes-256-gcm", keyFor(version), nonce, { authTagLength: TAG_BYTES });
-  cipher.setAAD(aad(userId, credentialId, version));
+  cipher.setAAD(aad(userId, id, version, purpose));
   const ciphertext = Buffer.concat([cipher.update(JSON.stringify(secret), "utf8"), cipher.final()]);
   return {
     ciphertext: ciphertext.toString("base64"),
@@ -55,13 +59,13 @@ export function encryptSecret(secret: CredentialSecret, userId: string, credenti
   };
 }
 
-export function decryptSecret(row: EncryptedSecret, userId: string, credentialId: string): CredentialSecret {
+export function decryptSecret(row: EncryptedSecret, userId: string, id: string, purpose: SecretPurpose = "credential"): CredentialSecret {
   try {
     const nonce = Buffer.from(row.nonce, "base64");
     const tag = Buffer.from(row.tag, "base64");
     if (nonce.length !== NONCE_BYTES || tag.length !== TAG_BYTES) throw new Error();
     const decipher = createDecipheriv("aes-256-gcm", keyFor(row.key_version), nonce, { authTagLength: TAG_BYTES });
-    decipher.setAAD(aad(userId, credentialId, row.key_version));
+    decipher.setAAD(aad(userId, id, row.key_version, purpose));
     decipher.setAuthTag(tag);
     const plain = Buffer.concat([decipher.update(Buffer.from(row.ciphertext, "base64")), decipher.final()]).toString("utf8");
     const secret = JSON.parse(plain) as CredentialSecret;
@@ -87,6 +91,8 @@ export function credentialHeader(secret: CredentialSecret, headerName: string | 
       const encoded = Buffer.from(pair, "utf8").toString("base64");
       return { name: "authorization", value: `Basic ${encoded}`, secrets: [`Basic ${encoded}`, encoded, pair, secret.password] };
     }
+    case "webhook_secret":
+      throw new Error("errors.credentialInvalid");
   }
 }
 

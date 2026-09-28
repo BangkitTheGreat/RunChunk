@@ -11,6 +11,7 @@
     "test": "tsx scripts/check-workflow.ts && tsx scripts/check-engine.ts && tsx scripts/check-triggers.ts"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
     "@xyflow/react": "^12.12.0",

@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { generateToken, hashToken, tokenHint, webhookUrl } from "@/lib/webhook";
 
 /** Metadata browsers may see. The token hash is never selected. */
-const ENDPOINT_METADATA = "id,workflow_id,token_hint,created_at,rotated_at,last_received_at";
+const ENDPOINT_METADATA = "id,workflow_id,token_hint,created_at,rotated_at,last_received_at,signing_hint,signing_created_at";
 
 function appUrl(request: Request) {
   return process.env.APP_URL ?? new URL(request.url).origin;

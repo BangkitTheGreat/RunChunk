@@ -77,7 +77,10 @@
     "scheduleInvalid": "The schedule is not valid yet. Enter a correct cron expression and timezone.",
     "rateLimited": "Too many requests to this webhook. Try again shortly.",
     "webhookInvalidJson": "Webhook body is not valid JSON.",
-    "schedulePersistenceFailed": "Schedule could not be saved."
+    "schedulePersistenceFailed": "Schedule could not be saved.",
+    "webhookSignatureMissing": "The request has no X-RunChunk-Signature header.",
+    "webhookSignatureInvalid": "The webhook signature does not match.",
+    "webhookSignatureStale": "The signature timestamp is outside the 5-minute tolerance."
   },
   "dashboard": {
     "workspace": "WORKSPACE",
@@ -204,7 +207,21 @@
     "scheduleNext": "Next runs",
     "scheduleInvalid": "Cron or timezone is not valid yet.",
     "scheduleHint": "Runs only while the workflow is Active. Slots missed while the system was down are not caught up. When the quota runs out the schedule is deactivated automatically and recorded in history.",
-    "scheduleData": "Trigger data: '{{$json.scheduledAt}}', '{{$json.timezone}}', '{{$json.cron}}'."
+    "scheduleData": "Trigger data: '{{$json.scheduledAt}}', '{{$json.timezone}}', '{{$json.cron}}'.",
+    "webhookSignature": "HMAC signature (optional)",
+    "webhookSignatureHint": "When enabled, senders must sign the body with HMAC-SHA256 using the shared secret. Requests without a matching signature are refused with 401.",
+    "webhookSignatureNone": "Signing is off; every request with the right token is accepted.",
+    "webhookSignatureEnable": "Enable signing",
+    "webhookSignatureRotate": "Rotate secret",
+    "webhookSignatureDisable": "Disable",
+    "webhookSignatureSecret": "Shared secret",
+    "webhookSignatureOnce": "Save this secret now; it is not shown again. Header: X-RunChunk-Signature: t=unix-seconds,v1=hex(HMAC-SHA256(secret, \"t.body\")).",
+    "webhookSignatureExample": "Signed example call",
+    "webhookSignatureSet": "Enabled since {date} · secret …{hint}",
+    "webhookSignatureConfirmRotate": "Rotate the secret? Senders must switch to the new one; the old one is refused immediately.",
+    "webhookSignatureConfirmDisable": "Disable signing? Unsigned requests will be accepted again.",
+    "autoLayout": "Tidy up",
+    "autoLayoutHint": "Re-arrange node positions left to right; true branch on top."
   },
   "nodes": {
     "triggerManual": "Manual Trigger",
@@ -283,5 +300,21 @@
     "keyVersion": "key v{version}",
     "secretHidden": "••••••••",
     "valueHint": "At least 8 characters. Once saved it cannot be viewed, only replaced."
+  },
+  "versions": {
+    "title": "Version history",
+    "hint": "Every save that changes the definition or name is kept as a version (last 20). Restoring an old one creates a new version, so it can always be undone.",
+    "empty": "No saved versions yet.",
+    "current": "Current version",
+    "isCurrent": "This is the version open now.",
+    "counts": "{nodes} nodes · {edges} edges",
+    "same": "Same as the canvas now (only positions differ).",
+    "nodesOnlyThere": "{count} nodes exist only in this version: {names}",
+    "nodesOnlyHere": "{count} nodes are missing from this version: {names}",
+    "nodesChanged": "{count} nodes configured differently: {names}",
+    "edges": "Connections: +{added} / −{removed} compared to the canvas",
+    "restore": "Restore v{version}",
+    "confirmRestore": "Restore v{version}? The current canvas is kept as a new version first, then replaced.",
+    "button": "Versions"
   }
 }

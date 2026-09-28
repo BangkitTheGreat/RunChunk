@@ -4,8 +4,10 @@ import { isValidCron, isValidTimezone, nextRunAt, nextRuns } from "../src/lib/wo
 import { executeWorkflow, type EngineDeps, type LogEntry } from "../src/lib/workflow/engine";
 import { dispatchSlot, type DispatchDeps, type DueSchedule } from "../src/lib/executions/dispatch";
 import { startExecution, type StartDeps, type StartInput } from "../src/lib/executions/start";
-import { TOKEN_PATTERN, buildTriggerData, generateToken, hashToken, parseWebhookBody, tokenHint, webhookUrl } from "../src/lib/webhook";
-import type { WorkflowNode } from "../src/lib/workflow/types";
+import { TOKEN_PATTERN, buildTriggerData, generateSigningSecret, generateToken, hashToken, parseWebhookBody, signPayload, tokenHint, verifySignature, webhookUrl } from "../src/lib/webhook";
+import type { WorkflowDefinition, WorkflowNode } from "../src/lib/workflow/types";
+import { autoLayout, STATION_HEIGHT, STATION_WIDTH } from "../src/lib/workflow/layout";
+import { diffDefinitions, isEmptyDiff } from "../src/lib/workflow/diff";
 
 const node = (id: string, type: WorkflowNode["type"], data: Record<string, unknown> = {}): WorkflowNode => ({ id, type, position: { x: 0, y: 0 }, data });
 const edge = (source: string, target: string, sourceHandle?: string) => ({ id: `${source}-${sourceHandle ?? "out"}-${target}`, source, target, sourceHandle: sourceHandle ?? null });
@@ -210,7 +212,90 @@ function webhookChecks() {
   }, "auth headers and cookies never enter trigger data");
 }
 
+function signatureChecks() {
+  const secret = generateSigningSecret();
+  assert.match(secret, /^[A-Za-z0-9_-]{43}$/);
+  const body = '{"email":"a@b.c","n":1}';
+  const now = 1_800_000_000;
+  const header = signPayload(secret, body, now);
+  assert.match(header, /^t=1800000000,v1=[0-9a-f]{64}$/);
+  assert.deepEqual(verifySignature(secret, header, body, now), { ok: true });
+  assert.deepEqual(verifySignature(secret, header, body, now + 299), { ok: true }, "inside tolerance");
+  assert.deepEqual(verifySignature(secret, header.toUpperCase().replace("T=", "t=").replace("V1=", "v1="), body, now), { ok: true }, "hex case is irrelevant");
+  assert.deepEqual(verifySignature(secret, header, body, now + 301), { ok: false, reason: "errors.webhookSignatureStale" });
+  assert.deepEqual(verifySignature(secret, header, body, now - 301), { ok: false, reason: "errors.webhookSignatureStale" });
+  assert.deepEqual(verifySignature(secret, header, body + " ", now), { ok: false, reason: "errors.webhookSignatureInvalid" }, "tampered body");
+  assert.deepEqual(verifySignature(generateSigningSecret(), header, body, now), { ok: false, reason: "errors.webhookSignatureInvalid" }, "wrong secret");
+  assert.deepEqual(verifySignature(secret, null, body, now), { ok: false, reason: "errors.webhookSignatureMissing" });
+  for (const malformed of ["", "t=abc,v1=00", "v1=" + "0".repeat(64), "t=1800000000", "t=1800000000,v1=zz", "t=1800000000,v1=" + "0".repeat(63)]) {
+    assert.equal(verifySignature(secret, malformed, body, now).ok, false, `malformed accepted: ${malformed}`);
+  }
+  // Timestamp is part of the MAC: replaying the MAC under a fresh timestamp fails.
+  const [, mac] = header.split(",v1=");
+  assert.deepEqual(verifySignature(secret, `t=${now + 10},v1=${mac}`, body, now + 10), { ok: false, reason: "errors.webhookSignatureInvalid" });
+  // Rotation: a sender may send both old and new MACs; either valid one passes.
+  const next = generateSigningSecret();
+  const both = `${signPayload(secret, body, now)},v1=${signPayload(next, body, now).split("v1=")[1]}`;
+  assert.deepEqual(verifySignature(next, both, body, now), { ok: true });
+  assert.deepEqual(verifySignature(secret, both, body, now), { ok: true });
+}
+
+function layoutChecks() {
+  const messy: WorkflowDefinition = {
+    nodes: [
+      node("o", "output.response"), node("no", "output.response"), node("c", "control.condition", { left: "x", operator: "exists" }),
+      node("t", "trigger.manual"), node("h", "action.http", { url: "https://x" }), node("yes", "action.set_variable"),
+    ].map((n, i) => ({ ...n, position: { x: 900 - i * 100, y: 500 - i * 80 } })),
+    edges: [edge("t", "h"), edge("h", "c"), edge("c", "yes", "true"), edge("c", "no", "false"), edge("yes", "o"), edge("no", "o")],
+  };
+  const tidy = autoLayout(messy);
+  const at = (id: string) => tidy.nodes.find((n) => n.id === id)!.position;
+  assert.deepEqual(tidy.edges, messy.edges, "edges untouched");
+  assert.deepEqual(tidy.nodes.map((n) => [n.id, n.type, n.data]), messy.nodes.map((n) => [n.id, n.type, n.data]), "only positions change");
+  assert.ok(tidy.nodes.every((n) => at(n.id).x >= 0 && at(n.id).y >= 0), "inside the canvas");
+  assert.ok(at("t").x < at("h").x && at("h").x < at("c").x && at("c").x < at("yes").x && at("yes").x < at("o").x, "flows left to right");
+  assert.equal(at("yes").x, at("no").x, "branches share a rank");
+  assert.ok(at("yes").y < at("no").y, "true branch above false branch");
+  for (const a of tidy.nodes) for (const b of tidy.nodes) if (a.id < b.id) {
+    const overlap = Math.abs(at(a.id).x - at(b.id).x) < STATION_WIDTH && Math.abs(at(a.id).y - at(b.id).y) < STATION_HEIGHT;
+    assert.ok(!overlap, `${a.id} overlaps ${b.id}`);
+  }
+  assert.deepEqual(autoLayout(messy), tidy, "deterministic");
+  const taller = autoLayout(messy, { yes: { height: 200 } });
+  const tallAt = (id: string) => taller.nodes.find((n) => n.id === id)!.position;
+  assert.ok(tallAt("no").y - tallAt("yes").y >= 200, "measured sizes are honored (a taller sibling pushes the next one down)");
+  const lone = autoLayout({ nodes: [node("t", "trigger.manual")], edges: [] });
+  assert.equal(lone.nodes.length, 1);
+}
+
+function diffChecks() {
+  const base: WorkflowDefinition = { nodes: [node("t", "trigger.manual"), node("h", "action.http", { url: "https://a", method: "GET" }), node("o", "output.response")], edges: [edge("t", "h"), edge("h", "o")] };
+  assert.ok(isEmptyDiff(diffDefinitions(base, base)));
+  const moved = { ...base, nodes: base.nodes.map((n) => ({ ...n, position: { x: 999, y: 999 } })) };
+  assert.ok(isEmptyDiff(diffDefinitions(base, moved)), "positions do not count");
+  const reordered = { ...base, nodes: [...base.nodes].reverse(), edges: [...base.edges].reverse() };
+  assert.ok(isEmptyDiff(diffDefinitions(base, reordered)), "order does not count");
+  const keyOrder = { ...base, nodes: base.nodes.map((n) => (n.id === "h" ? { ...n, data: { method: "GET", url: "https://a" } } : n)) };
+  assert.ok(isEmptyDiff(diffDefinitions(base, keyOrder)), "data key order does not count");
+  const next: WorkflowDefinition = {
+    nodes: [node("t", "trigger.manual"), node("h", "action.http", { url: "https://b", method: "GET" }), node("c", "control.condition")],
+    edges: [edge("t", "h"), edge("h", "c")],
+  };
+  const diff = diffDefinitions(base, next);
+  assert.deepEqual(diff.addedNodes.map((n) => n.id), ["c"]);
+  assert.deepEqual(diff.removedNodes.map((n) => n.id), ["o"]);
+  assert.deepEqual(diff.changedNodes.map((n) => n.id), ["h"]);
+  assert.equal(diff.addedEdges, 1);
+  assert.equal(diff.removedEdges, 1);
+  const handleSwap = { ...base, nodes: [...base.nodes, node("c", "control.condition")], edges: [edge("t", "c"), edge("c", "h", "true"), edge("h", "o")] };
+  const swapped = { ...handleSwap, edges: [edge("t", "c"), edge("c", "h", "false"), edge("h", "o")] };
+  assert.equal(diffDefinitions(handleSwap, swapped).addedEdges, 1, "a different port is a different connection");
+}
+
 async function main() {
+  diffChecks();
+  layoutChecks();
+  signatureChecks();
   validationChecks();
   cronChecks();
   await engineTriggerChecks();
